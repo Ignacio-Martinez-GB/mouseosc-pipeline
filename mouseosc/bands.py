@@ -16,13 +16,17 @@ from __future__ import annotations
 import numpy as np
 from .preprocessing import bandpass_filter
 
+# Compatibilidad numpy: en 2.x la función es np.trapezoid; en 1.x es np.trapz.
+# Tomamos la que exista para funcionar con cualquier versión del entorno.
+_trapz = getattr(np, "trapezoid", None) or np.trapz
+
 
 def band_power(freqs, psd, lo, hi):
     """Integral del PSD en [lo,hi] Hz (área bajo la curva = potencia absoluta)."""
     mask = (freqs >= lo) & (freqs <= hi)
     if mask.sum() < 2:
         return np.nan
-    return float(np.trapezoid(psd[mask], freqs[mask]))
+    return float(_trapz(psd[mask], freqs[mask]))
 
 
 def band_rms(signal, fs, lo, hi):

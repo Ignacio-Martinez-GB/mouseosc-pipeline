@@ -1,3 +1,25 @@
+Metadata-Version: 2.4
+Name: mouseosc
+Version: 0.1.0
+Summary: Pipeline genérico y reproducible para análisis de actividad oscilatoria (LFP/ERG) en ratón
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: numpy==1.26.4
+Requires-Dist: scipy==1.13.1
+Requires-Dist: pandas==2.2.2
+Requires-Dist: matplotlib==3.9.0
+Requires-Dist: pyyaml==6.0.1
+Requires-Dist: statsmodels==0.14.2
+Requires-Dist: tqdm==4.66.4
+Provides-Extra: specparam
+Requires-Dist: specparam==2.0.0rc3; extra == "specparam"
+Provides-Extra: abf
+Requires-Dist: pyabf==2.3.8; extra == "abf"
+Provides-Extra: nwb
+Requires-Dist: pynwb==2.8.1; extra == "nwb"
+Provides-Extra: test
+Requires-Dist: pytest==8.2.2; extra == "test"
+
 # mouseosc — pipeline genérico de actividad oscilatoria en ratón
 
 Pipeline **reproducible, configurable y verificable** para analizar oscilaciones
@@ -18,13 +40,6 @@ todo se controla desde `config.yaml`.
    quieres, el pipeline se detiene ante un check rojo.
 4. **Reproducibilidad.** Versiones fijadas (`pyproject.toml`), semilla fija, y
    cada salida lleva una cabecera con fecha + hash del config + versiones.
-
-## Requisito de Python
-
-Usa **Python 3.10, 3.11 o 3.12**. Con 3.13/3.14 la instalación de numpy/scipy
-puede fallar (no hay paquetes precompilados de las versiones fijadas e intenta
-compilar desde fuente, lo que requiere un compilador Fortran). Comprueba tu
-versión con `python3 --version`; si es muy nueva, crea el entorno con 3.12.
 
 ## Instalación
 

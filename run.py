@@ -37,6 +37,14 @@ from tqdm import tqdm
 PROJ = Path(__file__).resolve().parent
 sys.path.insert(0, str(PROJ))
 
+# Aviso temprano de versión de Python: el stack científico fijado (numpy/scipy)
+# tiene wheels para 3.10–3.12. Con 3.13+ pip intentaría compilar desde fuente.
+if not ((3, 10) <= sys.version_info[:2] <= (3, 12)):
+    print(f"AVISO: estás usando Python {sys.version_info.major}.{sys.version_info.minor}. "
+          "Este pipeline está probado en Python 3.10–3.12. Con versiones más nuevas "
+          "la instalación de numpy/scipy puede fallar (intenta compilar desde fuente). "
+          "Crea el entorno con Python 3.12.")
+
 from mouseosc import (io, preprocessing as pp, spectral, bands, pac, bursts,
                       stats, checks, report, viz)
 from mouseosc.provenance import header_text
