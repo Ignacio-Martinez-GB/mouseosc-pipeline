@@ -1,0 +1,18 @@
+# entornos y cachés
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+
+# salidas generadas (reproducibles desde los datos + config)
+resultados/
+resultados_test/
+config_test.yaml
+examples/datos_sinteticos/
+
+# datos crudos (no versionar archivos grandes)
+Datos/
+*.mat
+*.abf
+*.nwb

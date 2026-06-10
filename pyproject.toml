@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mouseosc"
+version = "0.1.0"
+description = "Pipeline genérico y reproducible para análisis de actividad oscilatoria (LFP/ERG) en ratón"
+readme = "README.md"
+requires-python = ">=3.10"
+
+# ---------------------------------------------------------------------------
+# Dependencias CON VERSIÓN FIJADA (reproducibilidad).
+# Si en un año reinstalas el entorno, obtienes EXACTAMENTE los mismos números.
+# El núcleo (Welch, bandas, PAC, stats) solo necesita numpy/scipy/pandas.
+# ---------------------------------------------------------------------------
+dependencies = [
+    "numpy==1.26.4",
+    "scipy==1.13.1",
+    "pandas==2.2.2",
+    "matplotlib==3.9.0",
+    "pyyaml==6.0.1",
+    "statsmodels==0.14.2",   # corrección por comparaciones múltiples
+    "tqdm==4.66.4",
+]
+
+[project.optional-dependencies]
+# Análisis aperiódico/periódico (separación 1/f). Pesado: opcional.
+specparam = ["specparam==2.0.0rc3"]
+# Lectores de formato extra. Se importan solo si el usuario los necesita.
+abf = ["pyabf==2.3.8"]
+nwb = ["pynwb==2.8.1"]
+# Para correr los tests de verdad conocida.
+test = ["pytest==8.2.2"]
+
+[project.scripts]
+mouseosc = "run:main"
+
+[tool.setuptools]
+packages = ["mouseosc"]

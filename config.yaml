@@ -1,0 +1,190 @@
+# =============================================================================
+# config.yaml  —  ÚNICO punto de control del pipeline
+# =============================================================================
+# Regla de oro: NINGÚN número del análisis vive en el código. Todo lo que un
+# usuario podría querer cambiar está aquí, y cada parámetro lleva:
+#   • QUÉ es,
+#   • QUÉ pasa si lo subes / bajas (↑ / ↓),
+#   • un valor TÍPICO para LFP/ERG de ratón.
+#
+# Para usar el pipeline con OTRO set de datos normalmente solo tocas:
+#   - dataset.*  (dónde están los datos y cómo se leen)
+#   - preprocessing.fs  (si tu muestreo es distinto)
+#   - groups.*   (cómo comparar tus condiciones)
+# El resto suele quedar igual.
+# =============================================================================
+
+project:
+  name: "raton_generico"        # etiqueta que aparece en salidas y reportes
+  seed: 1234                    # semilla aleatoria fija → resultados reproducibles
+  # ↑ cambiar la semilla cambia SOLO procesos aleatorios (p. ej. surrogates de
+  #   PAC). No afecta Welch ni potencia por banda, que son deterministas.
+
+# -----------------------------------------------------------------------------
+# DATASET — de dónde salen los datos y cómo se leen.
+# -----------------------------------------------------------------------------
+# El pipeline NO adivina la estructura de tus carpetas. En vez de eso lee un
+# "manifiesto" (CSV) que lista cada registro y sus metadatos. Esto lo hace
+# genérico: sirve para cualquier organización de archivos y cualquier diseño
+# experimental. Genera una plantilla con:  python run.py scan-folder Datos/
+dataset:
+  manifest: "manifest.csv"      # CSV con: file_path, group, animal_id, [extra...]
+  root: "Datos"                 # carpeta raíz (las rutas del manifiesto son relativas a ésta)
+  format: "auto"                # auto | mat | csv | abf | nwb
+  # ↑ "auto" decide por la extensión del archivo. Fíjalo si tus archivos
+  #   tienen extensión rara.
+
+  # --- Opciones específicas por formato (solo se usa la del formato activo) ---
+  mat:
+    channel: "someData2"        # nombre de la variable dentro del .mat con la señal
+    # ↑ si no sabes cuál es, corre  python run.py inspect <archivo.mat>
+  csv:
+    time_col: 0                 # índice (o nombre) de la columna de tiempo; null si no hay
+    signal_col: 1               # índice (o nombre) de la columna de voltaje
+    delimiter: ","
+    skiprows: 0                 # filas de encabezado a saltar
+  abf:
+    channel: 0                  # índice de canal en el archivo Axon
+  nwb:
+    series: "ElectricalSeries"  # nombre del TimeSeries dentro del NWB
+
+# -----------------------------------------------------------------------------
+# PREPROCESAMIENTO — limpieza antes del análisis espectral.
+# -----------------------------------------------------------------------------
+preprocessing:
+  fs: 2000                # Hz. Frecuencia de muestreo. DEBE coincidir con tus
+                          # datos. El pipeline VERIFICA fs contra el nº de
+                          # muestras y la duración; si no cuadra, se detiene.
+  fs_tolerance: 0.02      # tolerancia relativa (2 %) al verificar fs vs datos.
+
+  detrend: true           # quita pendiente + offset DC por mínimos cuadrados.
+                          # ↑ casi siempre TRUE: el análisis oscilatorio mira la
+                          #   componente AC, no el nivel continuo.
+  highpass_hz: 0.5        # filtro paso-alto (Butterworth fase-cero, orden 4).
+                          # ↑ subir (1.0) limpia más deriva lenta pero se come
+                          #   oscilaciones <1 Hz.  ↓ bajar (0.1) conserva lo lento.
+  lowpass_hz: 500.0       # paso-bajo. Debe ser ≤ Nyquist (= fs/2). Anti-aliasing
+                          # de software; con fs=2000 el tope es 1000.
+
+  epoch_length_s: 2.0     # longitud de cada época para PSD (s).
+                          # ↑ épocas largas = mejor resolución en frecuencia
+                          #   pero MENOS épocas para promediar (PSD más ruidoso).
+  epoch_overlap: 0.5      # solape entre épocas (0–1). ↑ más épocas (correlacionadas).
+
+  artifact_threshold_sd: 8   # rechazo de épocas: descarta las que superan
+                             # N×SD de amplitud. ↓ 5 = estricto; ↑ 12 = permisivo.
+                             # El reporte avisa si se rechaza >30 % de épocas.
+
+# -----------------------------------------------------------------------------
+# ESPECTRO — PSD de Welch y separación 1/f (specparam / FOOOF).
+# -----------------------------------------------------------------------------
+spectral:
+  welch:
+    overlap: 0.5          # solape interno de Welch (cuando época > ventana).
+    freq_min: 0.5         # menor frecuencia a conservar (Hz).
+    freq_max: 500.0       # mayor frecuencia (Hz). Tope físico = Nyquist = fs/2.
+
+  # Análisis MULTI-VENTANA: corre el espectro una vez por cada ventana activa.
+  # Resolución espectral Δf = 1 / window_s.
+  #   2 s → 0.5 Hz (rápido, muchas épocas) | 4 s → 0.25 Hz | 10 s → 0.1 Hz (fino, ruidoso)
+  windows:
+    - {window_s: 2.0,  enabled: true}
+    - {window_s: 4.0,  enabled: false}
+    - {window_s: 10.0, enabled: false}
+  primary_window_s: 2.0   # ventana usada por PAC (no espectral). Debe estar activa.
+
+  specparam:
+    enabled: true         # si false, se omite la separación 1/f (no requiere la
+                          # dependencia opcional `specparam`).
+    freq_range: [1.0, 300.0]      # rango donde se ajusta el modelo (Hz).
+    peak_width_limits: [0.5, 8.0] # ancho mín/máx de un pico (Hz).
+    max_n_peaks: 6                # máx. picos por PSD. ↑ más picos = sobreajuste.
+    min_peak_height: 0.05         # altura mínima (log10) para contar un pico.
+    aperiodic_mode: "fixed"       # "fixed" (offset+pendiente) | "knee" (añade codo).
+
+# -----------------------------------------------------------------------------
+# BANDAS de frecuencia. Edita libremente. Cubre 0.5–500 Hz sin huecos para que
+# ninguna energía del PSD quede fuera de las métricas por banda.
+# Las bandas "gap_" son rangos exploratorios sin nombre canónico en la literatura.
+# -----------------------------------------------------------------------------
+bands:
+  slow:     [0.5,   2.0]
+  low_osc:  [2.0,   5.0]
+  mid_osc:  [5.0,  12.0]   # ⚠ en ratón in vivo solapa con el latido cardiaco (~5–12 Hz).
+                           #   Interpreta picos aquí con cautela (ver contamination_zones).
+  beta:     [12.0,  30.0]
+  gamma_lo: [30.0,  60.0]
+  gamma_hi: [60.0, 160.0]
+  mua:      [300.0, 500.0] # actividad multiunitaria (no es una oscilación "de banda").
+
+relative_power:
+  reference_range: [0.5, 160.0]  # denominador de la potencia relativa.
+  # ↑ la potencia relativa de cada banda = abs_power / integral(PSD en este rango).
+
+# Zonas de contaminación conocidas: se ANOTAN en el reporte (no se borran).
+contamination_zones:
+  - {name: "cardiaco",   range: [5.0, 12.0], note: "latido (ECG) en ratón in vivo"}
+  - {name: "linea_60Hz", range: [58.0, 62.0], note: "ruido de red eléctrica (50 Hz en EU)"}
+
+# -----------------------------------------------------------------------------
+# PAC — acoplamiento fase-amplitud (Tort MI + Canolty MVL).
+# -----------------------------------------------------------------------------
+pac:
+  enabled: true
+  n_phase_bins: 18        # bins de fase para el MI (18 = 20° cada uno).
+  n_surrogates: 200       # nº de subrogados para la significancia del MI.
+                          # ↑ más subrogados = p más preciso, pero más lento.
+  pairs:                  # cada par: banda de FASE (lenta) × banda de AMPLITUD (rápida)
+    - {name: "theta-gamma", phase: [5.0, 12.0], amp: [30.0, 60.0]}  # ⚠ fase solapa cardiaco
+    - {name: "slow-gamma",  phase: [0.5, 2.0],  amp: [30.0, 60.0]}
+  comodulogram:
+    enabled: false        # mapa completo fase×amplitud (caro). Actívalo por caso.
+    phase_range: [1.0, 14.0]
+    phase_step: 1.0
+    amp_range: [20.0, 120.0]
+    amp_step: 10.0
+
+# -----------------------------------------------------------------------------
+# BURSTS — detección de ráfagas oscilatorias (envolvente de Hilbert).
+# -----------------------------------------------------------------------------
+bursts:
+  enabled: false          # actívalo para añadir métricas de ráfaga por registro.
+  threshold_sd: 2.0       # umbral = media + N×SD de la envolvente.
+                          # ↑ más estricto (menos ráfagas). ↓ más permisivo.
+  min_duration_ms: 50.0   # duración mínima para contar una ráfaga.
+  merge_gap_ms: 25.0      # fusiona ráfagas separadas por menos que este gap.
+  detection_bands:        # bandas donde buscar ráfagas (edítalas libremente).
+    gamma_lo: [30.0, 60.0]
+    gamma_hi: [60.0, 160.0]
+
+# -----------------------------------------------------------------------------
+# ESTADÍSTICA de grupos.
+# -----------------------------------------------------------------------------
+statistics:
+  group_col: "group"          # columna del manifiesto que define los grupos a comparar.
+  paired: false               # ¿medidas repetidas (mismo animal)? true usa pruebas pareadas.
+  alpha: 0.05                 # umbral de significancia.
+  correction: "holm"          # corrección múltiple: holm | bonferroni | fdr_bh | none.
+  min_n_per_group: 3          # nº mínimo por grupo; debajo, el reporte marca la prueba en ámbar.
+
+# -----------------------------------------------------------------------------
+# GRUPOS — define el diseño experimental para las comparaciones.
+# Lista los grupos que esperas; el pipeline avisa si el manifiesto trae otros.
+# -----------------------------------------------------------------------------
+groups:
+  expected: ["control", "tratamiento"]
+
+# -----------------------------------------------------------------------------
+# SALIDAS y verificación.
+# -----------------------------------------------------------------------------
+output:
+  dir: "resultados"
+  save_figures: true
+  dpi: 150
+
+checks:
+  stop_on_error: true     # true = el pipeline se DETIENE ante un check rojo.
+                          # false = sigue y lo registra en el reporte (modo exploratorio).
+  max_rejected_epochs_frac: 0.30   # umbral ámbar de % de épocas rechazadas.
+  min_specparam_r2: 0.90           # R² mínimo aceptable del ajuste 1/f.
+  energy_conservation_tol: 0.05    # las bandas deben sumar ≈ potencia total (±5 %).
