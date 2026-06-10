@@ -229,9 +229,34 @@ def cmd_demo(args):
     return rc
 
 
+_GUIA = """
+╔══════════════════════════════════════════════════════════════════╗
+║  mouseosc — pipeline de actividad oscilatoria en ratón            ║
+╚══════════════════════════════════════════════════════════════════╝
+
+No pasaste ningún comando. Tienes DOS formas de usar el pipeline:
+
+  ▶ FÁCIL (sin terminal): abre el archivo  INICIO.py , edita las 2
+    variables de arriba (MODO y CONFIG) y dale al botón Run de PyCharm.
+
+  ▶ TERMINAL (avanzado): usa uno de estos comandos:
+        python run.py demo                 prueba con datos sintéticos
+        python run.py scan-folder Datos/   crea la plantilla manifest.csv
+        python run.py inspect archivo.mat  ve las variables de un .mat
+        python run.py validate             revisa la salud de los datos
+        python run.py run                  análisis completo
+
+El orden normal con datos reales es:  inspect → scan-folder → (rellenar
+manifest.csv) → ajustar config.yaml → validate → run.
+"""
+
+
 def main():
-    ap = argparse.ArgumentParser(description="mouseosc — pipeline de oscilaciones en ratón")
-    sub = ap.add_subparsers(dest="cmd", required=True)
+    ap = argparse.ArgumentParser(
+        description="mouseosc — pipeline de oscilaciones en ratón")
+    # required=False: si lo corren sin comando (p. ej. ▶ en PyCharm sobre
+    # run.py) NO falla; mostramos una guía clara en su lugar.
+    sub = ap.add_subparsers(dest="cmd", required=False)
 
     p = sub.add_parser("scan-folder"); p.add_argument("folder"); p.add_argument("--out", default="manifest.csv")
     p = sub.add_parser("inspect"); p.add_argument("file")
@@ -240,6 +265,9 @@ def main():
     p = sub.add_parser("demo")
 
     args = ap.parse_args()
+    if args.cmd is None:
+        print(_GUIA)
+        return 0
     if args.cmd == "demo":
         return cmd_demo(args)
     if args.cmd == "scan-folder":

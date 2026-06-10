@@ -1,0 +1,148 @@
+bands:
+  beta:
+  - 12.0
+  - 30.0
+  gamma_hi:
+  - 60.0
+  - 160.0
+  gamma_lo:
+  - 30.0
+  - 60.0
+  low_osc:
+  - 2.0
+  - 5.0
+  mid_osc:
+  - 5.0
+  - 12.0
+  mua:
+  - 300.0
+  - 500.0
+  slow:
+  - 0.5
+  - 2.0
+bursts:
+  detection_bands:
+    gamma_hi:
+    - 60.0
+    - 160.0
+    gamma_lo:
+    - 30.0
+    - 60.0
+  enabled: false
+  merge_gap_ms: 25.0
+  min_duration_ms: 50.0
+  threshold_sd: 2.0
+checks:
+  energy_conservation_tol: 0.05
+  max_rejected_epochs_frac: 0.3
+  min_specparam_r2: 0.9
+  stop_on_error: true
+contamination_zones:
+- name: cardiaco
+  note: latido (ECG) en ratón in vivo
+  range:
+  - 5.0
+  - 12.0
+- name: linea_60Hz
+  note: ruido de red eléctrica (50 Hz en EU)
+  range:
+  - 58.0
+  - 62.0
+dataset:
+  abf:
+    channel: 0
+  csv:
+    delimiter: ','
+    signal_col: 1
+    skiprows: 0
+    time_col: 0
+  format: csv
+  manifest: manifest.csv
+  mat:
+    channel: someData2
+  nwb:
+    series: ElectricalSeries
+  root: /sessions/funny-awesome-hawking/mnt/AnalisisAleSteph/PipelineRatonGenerico/examples/datos_sinteticos
+groups:
+  expected:
+  - control
+  - tratamiento
+output:
+  dir: /sessions/funny-awesome-hawking/mnt/AnalisisAleSteph/PipelineRatonGenerico/resultados_demo
+  dpi: 150
+  save_figures: true
+pac:
+  comodulogram:
+    amp_range:
+    - 20.0
+    - 120.0
+    amp_step: 10.0
+    enabled: false
+    phase_range:
+    - 1.0
+    - 14.0
+    phase_step: 1.0
+  enabled: true
+  n_phase_bins: 18
+  n_surrogates: 200
+  pairs:
+  - amp:
+    - 30.0
+    - 60.0
+    name: theta-gamma
+    phase:
+    - 5.0
+    - 12.0
+  - amp:
+    - 30.0
+    - 60.0
+    name: slow-gamma
+    phase:
+    - 0.5
+    - 2.0
+preprocessing:
+  artifact_threshold_sd: 8
+  detrend: true
+  epoch_length_s: 2.0
+  epoch_overlap: 0.5
+  fs: 2000
+  fs_tolerance: 0.02
+  highpass_hz: 0.5
+  lowpass_hz: 500.0
+project:
+  name: raton_generico
+  seed: 1234
+relative_power:
+  reference_range:
+  - 0.5
+  - 160.0
+spectral:
+  primary_window_s: 2.0
+  specparam:
+    aperiodic_mode: fixed
+    enabled: false
+    freq_range:
+    - 1.0
+    - 300.0
+    max_n_peaks: 6
+    min_peak_height: 0.05
+    peak_width_limits:
+    - 0.5
+    - 8.0
+  welch:
+    freq_max: 500.0
+    freq_min: 0.5
+    overlap: 0.5
+  windows:
+  - enabled: true
+    window_s: 2.0
+  - enabled: false
+    window_s: 4.0
+  - enabled: false
+    window_s: 10.0
+statistics:
+  alpha: 0.05
+  correction: holm
+  group_col: group
+  min_n_per_group: 3
+  paired: false

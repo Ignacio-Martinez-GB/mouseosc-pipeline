@@ -6,6 +6,13 @@ acoplamiento fase-amplitud (PAC) y estadística de grupos. Pensado para
 **compartirse y reutilizarse con distintos sets de datos** sin tocar el código:
 todo se controla desde `config.yaml`.
 
+## 👉 ¿Primera vez? Empieza por `INICIO.py`
+
+Si no quieres usar la terminal: abre **`INICIO.py`** en PyCharm, edita las dos
+variables de arriba (`MODO` y `CONFIG`) y dale al botón ▶ Run. Empieza con
+`MODO = "demo"` para ver que todo funciona. Ese archivo explica el resto.
+(Si abres `run.py` y lo corres sin más, te mostrará esta misma guía.)
+
 ## Principios de diseño
 
 1. **Config-driven, cero números mágicos.** Cada parámetro vive en `config.yaml`,
