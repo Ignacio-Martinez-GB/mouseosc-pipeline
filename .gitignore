@@ -19,3 +19,10 @@ Datos/
 *.mat
 *.abf
 *.nwb
+
+# manifiesto (es específico de cada usuario/dataset; no se versiona)
+manifest.csv
+manifest_*.csv
+
+# guía local de git (no forma parte del paquete)
+GIT_Y_GITHUB.md
