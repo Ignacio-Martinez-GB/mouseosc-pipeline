@@ -132,6 +132,34 @@ python run.py run
 # → la estadística detecta la diferencia inyectada en gamma_lo (p≈0.002)
 ```
 
+## Estructura de salidas (una carpeta por análisis)
+
+Tras `run`, en `resultados/` encuentras, por cada tipo de análisis, su figura,
+los **datos detrás** de la figura, y CSVs en **formato GraphPad Prism**
+(columnas = grupos, filas = valor por animal, pegables directo):
+
+```
+resultados/
+  report.html                 reporte de salud
+  metrics_all.csv             maestro: una fila por registro, todas las métricas
+  espectro/
+    psd_por_grupo.png
+    psd_grupo_media_sem.csv    datos detrás de la figura (freq, media, sem por grupo)
+    psd_por_sujeto.csv         PSD completo: una columna por registro
+  bandas/
+    bandpower_abs.png, bandpower_rel.png, box_<banda>_<abs|rel>.png
+    bandas_largo.csv           datos completos (formato largo)
+    prism/<banda>_<abs|rel|rms>.csv   ← pegables en Prism
+  specparam/   (si specparam activo)  box_*.png + prism/*.csv
+  pac/         (si PAC activo)        box_pac_*.png + prism/*.csv [+ comodulograma]
+  bursts/      (si bursts activo)     box_burst_*.png + prism/*.csv
+  estadistica/
+    stats_comparisons.csv      omnibus + pares con corrección múltiple
+```
+
+Los CSV de `prism/` no llevan cabecera: su primera fila son los nombres de grupo,
+así que se copian y pegan tal cual en una tabla "Column" de GraphPad Prism.
+
 ## Recetas
 
 **Correr con archivos `.mat`** (señal en una variable):

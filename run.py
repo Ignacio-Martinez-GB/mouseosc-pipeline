@@ -46,7 +46,7 @@ if not ((3, 10) <= sys.version_info[:2] <= (3, 12)):
           "Crea el entorno con Python 3.12.")
 
 from mouseosc import (io, preprocessing as pp, spectral, bands, pac, bursts,
-                      stats, checks, report, viz)
+                      stats, checks, report, viz, export)
 from mouseosc.provenance import header_text
 
 
@@ -130,7 +130,9 @@ def cmd_run(args, validate_only=False):
         print(f"AVISO: grupos en el manifiesto no declarados en config.groups.expected: {found-expected}")
 
     rows, check_records = [], []
-    psd_by_group = {}
+    psd_by_group = {}            # {grupo: [psd, ...]}
+    freqs_by_group = {}          # {grupo: vector de frecuencias}
+    recids_by_group = {}         # {grupo: [rec_id, ...]} para el PSD por sujeto
     _como_signal = [None]        # guarda una señal limpia para el comodulograma
 
     # Verificación de configuración (una vez): definición de bandas.
@@ -158,10 +160,10 @@ def cmd_run(args, validate_only=False):
         if row is not None and not validate_only:
             rows.append(row)
             psd_by_group.setdefault(rec.group, []).append(spec["psd"])
+            recids_by_group.setdefault(rec.group, []).append(rec.rec_id)
+            freqs_by_group[rec.group] = spec["freqs"]
             if _como_signal[0] is None:
                 _como_signal[0] = spec["_signal_clean"]
-            if rec.group not in getattr(cmd_run, "_freqs", {}):
-                cmd_run.__dict__.setdefault("_freqs", {})[rec.group] = spec["freqs"]
 
     html = report.write_reports(check_records, cfg, out_dir)
     print(f"\nReporte de salud: {html}")
@@ -175,34 +177,48 @@ def cmd_run(args, validate_only=False):
         return 1
 
     df = pd.DataFrame(rows)
-    metrics_csv = out_dir / "metrics_all.csv"
-    with open(metrics_csv, "w", encoding="utf-8") as f:
-        f.write(header_text(cfg) + "\n")
-        df.to_csv(f, index=False)
-    print(f"Métricas por registro: {metrics_csv}  ({len(df)} registros)")
+    gcol = cfg["statistics"]["group_col"]
 
-    # Estadística de grupos sobre las métricas numéricas relevantes.
-    metric_cols = [c for c in df.columns if c.endswith(("_abs", "_rel", "_rms"))
-                   or c in ("aperiodic_exponent", "median_freq", "spectral_entropy")]
-    if df[cfg["statistics"]["group_col"]].nunique() >= 2:
+    # --- Maestro (una fila por registro, todas las métricas) ---
+    export.export_master(df, out_dir, cfg)
+    print(f"Maestro: {out_dir/'metrics_all.csv'}  ({len(df)} registros)")
+
+    # --- Espectro: figura + datos detrás + PSD por sujeto ---
+    if psd_by_group:
+        export.export_spectral(psd_by_group, freqs_by_group, recids_by_group, out_dir, cfg)
+        print(f"Espectro: {out_dir/'espectro'}")
+
+    # --- Bandas: barras + boxplots + prism + largo ---
+    export.export_bands(df, out_dir, cfg)
+    print(f"Bandas: {out_dir/'bandas'}")
+
+    # --- Specparam / PAC / Bursts (solo si produjeron columnas) ---
+    export.export_specparam(df, out_dir, cfg)
+    export.export_pac(df, out_dir, cfg)
+    export.export_bursts(df, out_dir, cfg)
+
+    # --- Estadística de grupos sobre todas las métricas numéricas ---
+    if df[gcol].nunique() >= 2:
+        metric_cols = [c for c in df.columns
+                       if c.endswith(("_abs", "_rel", "_rms", "_mi", "_mvl"))
+                       or c in ("aperiodic_exponent", "aperiodic_offset",
+                                "median_freq", "spectral_entropy", "spectral_edge_95")
+                       or c.startswith("burst_")]
+        metric_cols = [c for c in metric_cols if c != "sum_bands_abs"]
         stats_df = stats.compare_all(df, metric_cols, cfg)
-        stats_df.to_csv(out_dir / "stats_comparisons.csv", index=False)
-        print(f"Comparaciones de grupos: {out_dir/'stats_comparisons.csv'}")
+        export.export_stats(stats_df, out_dir, cfg)
+        n_sig = int(stats_df["significant"].sum()) if len(stats_df) else 0
+        print(f"Estadística: {out_dir/'estadistica'}  ({n_sig} comparaciones significativas)")
 
-    # Figuras.
-    if cfg.get("output", {}).get("save_figures", True):
-        fig_dir = out_dir / "figuras"
-        fig_dir.mkdir(exist_ok=True)
-        pbg = {g: (cmd_run._freqs[g], psds) for g, psds in psd_by_group.items()}
-        viz.plot_group_psd(pbg, fig_dir / "psd_por_grupo.png", cfg)
-        for m in ("gamma_lo_abs", "aperiodic_exponent"):
-            if m in df.columns:
-                viz.plot_band_box(df, m, cfg, fig_dir / f"box_{m}.png")
-        # Comodulograma (caro): se calcula UNA vez sobre el registro guardado.
-        if cfg.get("pac", {}).get("comodulogram", {}).get("enabled", False) and _como_signal[0] is not None:
-            ph, am, mi = pac.compute_comodulogram(_como_signal[0], cfg["preprocessing"]["fs"], cfg)
-            viz.plot_comodulogram(ph, am, mi, fig_dir / "comodulograma.png", cfg)
-        print(f"Figuras en {fig_dir}")
+    # --- Comodulograma (opcional, caro) ---
+    if cfg.get("pac", {}).get("comodulogram", {}).get("enabled", False) and _como_signal[0] is not None:
+        d = out_dir / "pac"; d.mkdir(parents=True, exist_ok=True)
+        ph, am, mi = pac.compute_comodulogram(_como_signal[0], cfg["preprocessing"]["fs"], cfg)
+        viz.plot_comodulogram(ph, am, mi, d / "comodulograma.png", cfg)
+        # datos detrás del comodulograma
+        import pandas as _pd
+        export._save_csv(_pd.DataFrame(mi, index=am, columns=ph),
+                         d / "comodulograma_datos.csv", cfg, index=True)
     return 0
 
 
