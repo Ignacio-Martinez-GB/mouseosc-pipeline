@@ -1,17 +1,50 @@
-# mouseosc — pipeline genérico de actividad oscilatoria en ratón
+# mouseosc — pipeline de actividad oscilatoria en ratón
 
 Pipeline **reproducible, configurable y verificable** para analizar oscilaciones
 (LFP/ERG) de ratón: PSD de Welch, separación 1/f (specparam), métricas por banda,
-acoplamiento fase-amplitud (PAC) y estadística de grupos. Pensado para
-**compartirse y reutilizarse con distintos sets de datos** sin tocar el código:
-todo se controla desde `config.yaml`.
+acoplamiento fase-amplitud (PAC) y estadística de grupos. Todo se controla desde
+un único archivo `config.yaml` y un `manifest.csv`, sin tocar el código.
 
-## 👉 ¿Primera vez? Empieza por `INICIO.py`
+---
 
-Si no quieres usar la terminal: abre **`INICIO.py`** en PyCharm, edita las dos
-variables de arriba (`MODO` y `CONFIG`) y dale al botón ▶ Run. Empieza con
-`MODO = "demo"` para ver que todo funciona. Ese archivo explica el resto.
-(Si abres `run.py` y lo corres sin más, te mostrará esta misma guía.)
+## 🚀 Inicio rápido (5 pasos)
+
+Si es tu primera vez, sigue esto en orden. No necesitas saber programar.
+
+**1. Instala Python 3.12** (no uses 3.13/3.14, ver más abajo). Compruébalo:
+   `python3 --version`.
+
+**2. Instala el proyecto** — un solo comando en la terminal, dentro de la carpeta:
+
+```bash
+bash setup.sh        # Mac / Linux
+setup.bat            # Windows (doble clic)
+```
+
+Esto crea el entorno, instala todo y corre las pruebas. Si ves `9 passed`, quedó bien.
+
+**3. Prueba que funciona sin tus datos.** Abre `INICIO.py`, deja `MODO = "demo"`
+   y dale al botón ▶ Run (en PyCharm) o corre `python run.py demo` (terminal).
+   Mira la carpeta `resultados_demo/`: si hay figuras y un `report.html`, todo OK.
+
+**4. Prepara tus datos.** Pon tus archivos en una carpeta y crea el manifiesto:
+   en `INICIO.py` pon `MODO = "scan"` y `CARPETA_DE_DATOS = "ruta/a/tus/datos"`, ▶ Run.
+   Se crea `manifest.csv`: ábrelo y rellena la columna `group` (y `sex`, `condition`… si quieres compararlas).
+
+**5. Ajusta y corre.** En `config.yaml` revisa `preprocessing.fs` (tu muestreo) y,
+   si son `.mat`, `dataset.mat.channel`. Luego en `INICIO.py` pon `MODO = "validate"`
+   (revisa la salud) y después `MODO = "run"` (análisis completo). Los resultados
+   quedan en `resultados/`.
+
+### Las tres formas de correrlo
+
+| Forma | Cómo | Para quién |
+|---|---|---|
+| **Sin terminal** | Abrir `INICIO.py`, editar `MODO`, botón ▶ Run | Lo más fácil (PyCharm/VS Code) |
+| **Terminal** | `python run.py demo` / `validate` / `run` | Si te sientes cómodo en consola |
+| **PyCharm Run Config** | Script `run.py`, parámetros `run --config config.yaml` | Para repetir corridas con un clic |
+
+> Si abres `run.py` y le das a ▶ sin más, no falla: te muestra una guía de qué hacer.
 
 ## Principios de diseño
 

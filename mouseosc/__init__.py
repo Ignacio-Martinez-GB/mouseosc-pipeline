@@ -1,5 +1,5 @@
 """
-mouseosc — pipeline genérico y reproducible de actividad oscilatoria en ratón.
+mouseosc — pipeline reproducible de actividad oscilatoria en ratón.
 
 Submódulos
 ----------

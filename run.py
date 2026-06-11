@@ -124,10 +124,14 @@ def cmd_run(args, validate_only=False):
     stop = cfg["checks"].get("stop_on_error", True)
 
     recs = io.read_manifest(cfg)
-    expected = set(cfg.get("groups", {}).get("expected", []))
-    found = set(r.group for r in recs)
-    if expected and found - expected:
-        print(f"AVISO: grupos en el manifiesto no declarados en config.groups.expected: {found-expected}")
+    # Los grupos REALES salen siempre del manifiesto (columna 'group'):
+    found = sorted(set(r.group for r in recs))
+    print(f"Grupos detectados en el manifiesto: {found}")
+    # config.groups.expected es OPCIONAL: solo sirve para avisar si aparece un
+    # grupo que no esperabas (control de calidad), nunca limita el análisis.
+    expected = set(cfg.get("groups", {}).get("expected", []) or [])
+    if expected and set(found) - expected:
+        print(f"AVISO: grupos no declarados en groups.expected: {set(found)-expected}")
 
     rows, check_records = [], []
     psd_store = {}               # {rec_id: psd}  → reconstruimos cualquier subconjunto
@@ -212,7 +216,7 @@ def cmd_run(args, validate_only=False):
                 parts = [name] + ([est_label] if est_label else []) + [f"{a}_vs_{b}"]
                 sub = comp_root.joinpath(*parts)
                 n = export.export_analyses(pair, psd_store, freqs, by, sub, cfg,
-                                           label=f"({a} vs {b})")
+                                           label=f"({a} vs {b})", bandpower_kind="box")
                 print(f"  {name}: {a} vs {b}{' ['+est_label+']' if est_label else ''} → {n} sig.")
 
     # ---------- Comodulograma global (opcional, caro) ----------

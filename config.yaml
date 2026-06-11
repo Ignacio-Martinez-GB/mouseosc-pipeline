@@ -172,13 +172,18 @@ statistics:
 # Lista los grupos que esperas; el pipeline avisa si el manifiesto trae otros.
 # -----------------------------------------------------------------------------
 groups:
-  expected: ["control", "tratamiento"]
+  # OPCIONAL. Los grupos del análisis SIEMPRE se leen del manifiesto (columna
+  # 'group'). Esta lista solo sirve para avisarte si aparece un grupo que no
+  # esperabas. Déjala vacía [] para no comprobar nada.
+  expected: []
 
 # -----------------------------------------------------------------------------
 # PLOTTING — apariencia de las figuras.
 # -----------------------------------------------------------------------------
 plotting:
   psd_scale: "loglog"     # loglog | semilog | both  (escala de las figuras de PSD)
+  notch_hz: [57, 63]      # franja excluida en las figuras de PSD (ruido eléctrico
+                          # de 60 Hz). En Europa usa [48, 52]. [] = no excluir nada.
   # Paleta de color por grupo. La CLAVE debe coincidir con el nombre del grupo en
   # el manifiesto. Lo que no esté aquí recibe un color automático (consistente).
   palette:
@@ -210,11 +215,14 @@ comparisons:
   - name: "grupo_por_sexo"   # control vs pups, por separado en cada sexo
     by: "group"
     within: "sex"            # requiere columna 'sex' en el manifiesto
-    enabled: false
+    enabled: true
   - name: "sexo"             # hembra vs macho (todas las parejas de 'sex')
     by: "sex"
     within: null
-    enabled: false
+    enabled: true
+  # NOTA: si tu columna de sexo se llama distinto (p. ej. "sexo"), cambia `by`
+  # y `within` a ese nombre. Si la columna no existe, la comparación se omite
+  # con un aviso (no rompe el pipeline).
 
 # -----------------------------------------------------------------------------
 # SALIDAS y verificación.

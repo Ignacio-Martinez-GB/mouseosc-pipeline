@@ -94,3 +94,46 @@ def compare_all(df, metrics, cfg):
     """Aplica compare_metric a una lista de métricas y concatena."""
     out = [compare_metric(df, m, cfg) for m in metrics if m in df.columns]
     return pd.concat(out, ignore_index=True) if out else pd.DataFrame()
+
+
+def significant_pairs(df, metric, gcol, cfg):
+    """
+    Devuelve la lista de parejas de grupos con diferencia significativa para
+    `metric`, ya con la corrección por comparaciones múltiples aplicada.
+
+    Retorna [(a, b, p_corregido), ...]. Para 2 grupos es a lo sumo una pareja;
+    para ≥3 grupos son todas las parejas que sobreviven la corrección.
+    Sirve para dibujar las barras de significancia en las figuras.
+    """
+    st = cfg.get("statistics", {})
+    paired = st.get("paired", False)
+    alpha = st.get("alpha", 0.05)
+    correction = st.get("correction", "holm")
+    levels = sorted(df[gcol].dropna().unique())
+    data = {g: df.loc[df[gcol] == g, metric].dropna().values for g in levels}
+    pairs = list(combinations(levels, 2))
+    raw = []
+    for a, b in pairs:
+        if len(data[a]) < 2 or len(data[b]) < 2:
+            raw.append(np.nan); continue
+        try:
+            if paired and len(data[a]) == len(data[b]):
+                _s, pv = sps.wilcoxon(data[a], data[b])
+            else:
+                _s, pv = sps.mannwhitneyu(data[a], data[b], alternative="two-sided")
+        except Exception:
+            pv = np.nan
+        raw.append(pv)
+    valid = [p for p in raw if p == p]   # no-NaN
+    if not valid:
+        return []
+    if correction != "none" and len(valid) > 1:
+        mask = [p == p for p in raw]
+        corr = np.array(raw, dtype=float)
+        _, pc, _, _ = multipletests([p for p in raw if p == p], alpha=alpha, method=correction)
+        it = iter(pc)
+        corr = [next(it) if m else np.nan for m in mask]
+    else:
+        corr = raw
+    return [(a, b, float(pc)) for (a, b), pc in zip(pairs, corr)
+            if pc == pc and pc < alpha]

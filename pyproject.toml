@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "mouseosc"
 version = "0.1.0"
-description = "Pipeline genérico y reproducible para análisis de actividad oscilatoria (LFP/ERG) en ratón"
+description = "Pipeline reproducible para análisis de actividad oscilatoria (LFP/ERG) en ratón"
 readme = "README.md"
 requires-python = ">=3.10,<3.13"   # 3.10–3.12: rango con wheels para numpy/scipy fijados.
                                    # 3.13/3.14 aún no tienen paquetes precompilados de las

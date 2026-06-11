@@ -29,7 +29,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from . import viz, stats
+from . import viz, stats, style
 from .provenance import header_text
 
 
@@ -52,19 +52,31 @@ def _prism(df, metric, gcol, path):
     pd.DataFrame(series).to_csv(path, index=False, na_rep="")
 
 
-def _footer(df, metric, gcol, cfg):
-    """Texto del pie: prueba estadística usada y p-valor (omnibus del subconjunto)."""
+def _omnibus_pf(df, metric, gcol, cfg):
+    """Devuelve (nombre_prueba, p) del omnibus del subconjunto, o (None, nan)."""
     paired = cfg.get("statistics", {}).get("paired", False)
     data = [df.loc[df[gcol] == g, metric].dropna().values
             for g in sorted(df[gcol].dropna().unique())]
-    data = [d for d in data if len(d) >= 1]
     if len(data) < 2 or any(len(d) < 2 for d in data):
-        return "n insuficiente para prueba estadística"
+        return None, float("nan")
     try:
         name, _stat, p = stats._omnibus(data, paired)
-        return f"{name}: p = {p:.4f}" + ("" if p >= 0.05 else "  (*)")
+        return name, p
     except Exception:
-        return ""
+        return None, float("nan")
+
+
+def _footer(df, metric, gcol, cfg):
+    """Texto del pie: prueba estadística usada y p-valor."""
+    name, p = _omnibus_pf(df, metric, gcol, cfg)
+    if name is None:
+        return "n insuficiente para prueba estadística"
+    return f"{name}: p = {p:.4f}" + ("" if p >= 0.05 else "  (*)")
+
+
+def _pvalue(df, metric, gcol, cfg):
+    """Solo el p-valor del omnibus (para marcar significancia por banda)."""
+    return _omnibus_pf(df, metric, gcol, cfg)[1]
 
 
 def _psd_by_group(df, psd_store, freqs, gcol):
@@ -80,7 +92,7 @@ def _psd_by_group(df, psd_store, freqs, gcol):
 # ---------------------------------------------------------------------------
 # motor único
 # ---------------------------------------------------------------------------
-def export_analyses(df, psd_store, freqs, gcol, out_dir, cfg, label=""):
+def export_analyses(df, psd_store, freqs, gcol, out_dir, cfg, label="", bandpower_kind="bar"):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     save_fig = cfg.get("output", {}).get("save_figures", True)
@@ -124,14 +136,19 @@ def export_analyses(df, psd_store, freqs, gcol, out_dir, cfg, label=""):
     if save_fig:
         for suf in ("abs", "rel"):
             if any(f"{b}_{suf}" in df.columns for b in bands_cfg):
-                viz.plot_bandpower_bars(df, gcol, cfg, d / f"bandpower_{suf}.png", suffix=suf)
+                sig = {b: _pvalue(df, f"{b}_{suf}", gcol, cfg)
+                       for b in bands_cfg if f"{b}_{suf}" in df.columns}
+                viz.plot_bandpower(df, gcol, cfg, d / f"bandpower_{suf}.png",
+                                   suffix=suf, kind=bandpower_kind, sig_by_band=sig)
         for b in bands_cfg:
             for suf in ("abs", "rel"):
                 m = f"{b}_{suf}"
                 if m in df.columns:
+                    titulo = style.band_label(b, bands_cfg[b]).replace("\n", " ") + f" — {suf}"
                     viz.plot_box(df, m, gcol, cfg, d / f"box_{m}.png",
-                                 ylabel=f"{b} ({suf})", title=f"{b} ({suf})",
-                                 footer_text=_footer(df, m, gcol, cfg))
+                                 ylabel=f"{b} ({suf})", title=titulo,
+                                 stat_text=_footer(df, m, gcol, cfg),
+                                 sig_pairs=stats.significant_pairs(df, m, gcol, cfg))
     band_metrics = [f"{b}_{s}" for b in bands_cfg for s in ("abs", "rel", "rms")]
     for m in band_metrics:
         if m in df.columns and df[m].notna().any():
@@ -175,7 +192,8 @@ def _export_metric_group(df, gcol, cfg, out_dir, cols, save_fig, box_only_suffix
     if save_fig:
         for m in box_cols:
             viz.plot_box(df, m, gcol, cfg, out_dir / f"box_{m}.png",
-                         ylabel=m, title=m, footer_text=_footer(df, m, gcol, cfg))
+                         ylabel=m, title=m, stat_text=_footer(df, m, gcol, cfg),
+                         sig_pairs=stats.significant_pairs(df, m, gcol, cfg))
     for m in cols:
         if df[m].notna().any():
             _prism(df, m, gcol, out_dir / "prism" / f"{m}.csv")

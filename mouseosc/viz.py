@@ -1,16 +1,17 @@
 """
 ===============================================================================
-FIGURAS — apariencia consistente, color por grupo, pie estadístico
+FIGURAS — apariencia consistente, color por grupo, significancia y pie explicativo
 ===============================================================================
 
 Todas las figuras:
   - usan la MISMA paleta por grupo (mouseosc.style.color_map),
   - llevan cabecera de procedencia y, cuando aplica, el método estadístico al pie,
   - autoescalan a la dispersión de los datos,
-  - etiquetan las bandas con su rango en Hz.
+  - etiquetan las bandas con su rango en Hz (en el título o eje X),
+  - marcan con barras/asteriscos las diferencias significativas.
 
-PSD por defecto en log-log (resalta la forma 1/f). Hay además un PSD "por banda"
-con zoom y escala propia para mirar sub-bandas en detalle.
+PSD: eje X = frecuencia (Hz) en escala log con ticks legibles; sin sombras grises;
+se excluye la franja de ruido eléctrico (config.plotting.notch_hz, p. ej. 57–63 Hz).
 """
 from __future__ import annotations
 
@@ -19,9 +20,14 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.ticker import LogLocator, FuncFormatter
 
 from . import style
 from .provenance import header_text
+
+# Pie de figura estándar para cajas y bigotes.
+BOX_FOOTER = ("Caja: mediana e IQR (Q1–Q3)  ·  bigotes: 1.5×IQR  ·  "
+              "△ = media  ·  puntos = animales")
 
 
 def _save(fig, path, cfg, footer_text=None):
@@ -32,84 +38,132 @@ def _save(fig, path, cfg, footer_text=None):
 
 
 def _order(levels, cfg):
-    """Orden estable de grupos (alfabético) y su mapa de color."""
     levels = sorted(levels)
     return levels, style.color_map(levels, cfg)
 
 
+def _notch(cfg):
+    return (cfg.get("plotting", {}) or {}).get("notch_hz", [57, 63])
+
+
+def _mask_notch(freqs, *arrays, notch=None):
+    """Pone NaN en la franja del notch (ruido eléctrico) para que NO se grafique
+    ni cuente en la autoescala. Devuelve las arrays modificadas."""
+    if not notch:
+        return arrays
+    lo, hi = notch
+    bad = (freqs >= lo) & (freqs <= hi)
+    out = []
+    for a in arrays:
+        a = np.array(a, dtype=float); a[bad] = np.nan; out.append(a)
+    return out
+
+
+def _freq_xaxis(ax):
+    """Eje X de frecuencia en log con TICKS LEGIBLES (1, 2, 5, 10, 20, 50, 100…)."""
+    ax.set_xscale("log")
+    ax.xaxis.set_major_locator(LogLocator(base=10, subs=(1, 2, 5)))
+    ax.xaxis.set_major_formatter(FuncFormatter(lambda x, _: f"{x:g}"))  # 0.5, 1, 2, 5, 10…
+    ax.xaxis.set_minor_formatter(plt.NullFormatter())
+    ax.set_xlabel("Frecuencia (Hz)")
+
+
+def _stars(p):
+    return "***" if p < 1e-3 else "**" if p < 1e-2 else "*" if p < 0.05 else ""
+
+
 # ---------------------------------------------------------------------------
-# PSD por grupo (media ± SEM, sombreado)
+# Barras de significancia (corchetes) para boxplots
+# ---------------------------------------------------------------------------
+def _sig_brackets(ax, positions, pairs, data, ylog=False):
+    """Dibuja corchetes de significancia entre posiciones x. `pairs` = lista
+    (label_a, label_b, p). `positions` = {label: x}. `data` = {label: valores}."""
+    if not pairs:
+        return
+    ymax = max([np.nanmax(v) for v in data.values() if len(v)] + [0])
+    ymin = min([np.nanmin(v) for v in data.values() if len(v)] + [0])
+    span = (ymax / max(ymin, 1e-9)) if ylog else (ymax - ymin)
+    step = (span ** 0.06) if ylog else span * 0.08
+    level = ymax * (1.05 if ylog else 1) + (0 if ylog else span * 0.05)
+    for i, (a, b, p) in enumerate(sorted(pairs, key=lambda t: abs(positions[t[0]] - positions[t[1]]))):
+        x1, x2 = positions[a], positions[b]
+        y = level * (step ** i) if ylog else level + step * i
+        h = y * 0.02 if ylog else span * 0.015
+        ax.plot([x1, x1, x2, x2], [y, y + h, y + h, y], lw=1.1, color="#333")
+        ax.text((x1 + x2) / 2, y + h, _stars(p) or "ns", ha="center", va="bottom",
+                fontsize=10, color="#333")
+
+
+# ---------------------------------------------------------------------------
+# PSD por grupo (media ± SEM, sin sombra gris, X log legible)
 # ---------------------------------------------------------------------------
 def plot_group_psd(psd_by_group, out_path, cfg, scale="loglog", title=None,
-                   xlim=None, footer_text=None):
-    """PSD medio ± SEM por grupo. psd_by_group: {grupo: (freqs, [psd...])}."""
+                   footer_text=None):
     levels, cmap = _order(list(psd_by_group), cfg)
+    notch = _notch(cfg)
     fig, ax = plt.subplots(figsize=(7, 4.5))
     for g in levels:
         freqs, psds = psd_by_group[g]
-        arr = np.asarray(psds)
-        m = arr.mean(0)
-        sem = arr.std(0, ddof=1) / np.sqrt(len(arr)) if len(arr) > 1 else np.zeros_like(m)
+        freqs = np.asarray(freqs); arr = np.asarray(psds)
+        m = arr.mean(0); sem = arr.std(0, ddof=1) / np.sqrt(len(arr)) if len(arr) > 1 else np.zeros_like(m)
+        m, sem = _mask_notch(freqs, m, sem, notch=notch)
         ax.plot(freqs, m, color=cmap[g], lw=1.8, label=f"{g} (n={len(arr)})")
-        ax.fill_between(freqs, m - sem, m + sem, color=cmap[g], alpha=0.22, linewidth=0)
-    if scale == "loglog":
-        ax.set(xscale="log", yscale="log")
-    elif scale == "semilog":
-        ax.set(yscale="log")
-    if xlim:
-        ax.set_xlim(*xlim)
-    ax.set(xlabel="Frecuencia (Hz)", ylabel="PSD (amplitud²/Hz)",
-           title=title or "PSD por grupo (media ± SEM)")
+        ax.fill_between(freqs, m - sem, m + sem, color=cmap[g], alpha=0.20, linewidth=0)
+    _freq_xaxis(ax)
+    if scale in ("loglog", "semilog"):
+        ax.set_yscale("log")
+    ax.set(ylabel="PSD (amplitud²/Hz)", title=title or "PSD por grupo (media ± SEM)")
     ax.legend()
     _save(fig, out_path, cfg, footer_text)
 
 
 def plot_psd_bands(psd_by_group, out_path, cfg, scale="loglog", title=None):
-    """PSD por grupo con las bandas sombreadas de fondo (referencia visual)."""
+    """PSD por grupo con líneas verticales (no sombras) marcando las bandas."""
     levels, cmap = _order(list(psd_by_group), cfg)
-    bands = cfg.get("bands", {})
+    bands = cfg.get("bands", {}); notch = _notch(cfg)
     fig, ax = plt.subplots(figsize=(8, 4.5))
-    # franjas de banda al fondo
-    for i, (name, (lo, hi)) in enumerate(bands.items()):
-        ax.axvspan(lo, hi, color="#000", alpha=0.04 if i % 2 == 0 else 0.0)
-        ax.text(np.sqrt(lo * hi) if scale == "loglog" else (lo + hi) / 2,
-                0.98, name, transform=ax.get_xaxis_transform(),
-                ha="center", va="top", fontsize=7, color="#777", rotation=90)
+    edges = sorted({v for rng in bands.values() for v in rng})
+    for e in edges:
+        ax.axvline(e, color="#ccc", lw=0.6, zorder=0)
+    for name, (lo, hi) in bands.items():
+        ax.text(np.sqrt(lo * hi), 0.99, name, transform=ax.get_xaxis_transform(),
+                ha="center", va="top", fontsize=7, color="#888", rotation=90)
     for g in levels:
         freqs, psds = psd_by_group[g]
-        arr = np.asarray(psds); m = arr.mean(0)
-        sem = arr.std(0, ddof=1) / np.sqrt(len(arr)) if len(arr) > 1 else np.zeros_like(m)
+        freqs = np.asarray(freqs); arr = np.asarray(psds)
+        m = arr.mean(0); sem = arr.std(0, ddof=1) / np.sqrt(len(arr)) if len(arr) > 1 else np.zeros_like(m)
+        m, sem = _mask_notch(freqs, m, sem, notch=notch)
         ax.plot(freqs, m, color=cmap[g], lw=1.8, label=f"{g} (n={len(arr)})")
-        ax.fill_between(freqs, m - sem, m + sem, color=cmap[g], alpha=0.22, linewidth=0)
-    if scale == "loglog":
-        ax.set(xscale="log", yscale="log")
-    elif scale == "semilog":
-        ax.set(yscale="log")
-    ax.set(xlabel="Frecuencia (Hz)", ylabel="PSD (amplitud²/Hz)",
-           title=title or "PSD con bandas")
+        ax.fill_between(freqs, m - sem, m + sem, color=cmap[g], alpha=0.20, linewidth=0)
+    _freq_xaxis(ax)
+    if scale in ("loglog", "semilog"):
+        ax.set_yscale("log")
+    ax.set(ylabel="PSD (amplitud²/Hz)", title=title or "PSD con bandas")
     ax.legend()
     _save(fig, out_path, cfg)
 
 
 def plot_band_psd_zoom(psd_by_group, band_name, rng, out_path, cfg):
-    """PSD con ZOOM a una banda concreta y escala propia (autoescala a esa banda).
-    Útil para ver sub-bandas que en el panorama completo quedan aplastadas."""
+    """PSD con ZOOM a una banda y escala propia. Excluye el notch (57–63 Hz) para
+    que el ruido eléctrico no domine la autoescala."""
     lo, hi = rng
     levels, cmap = _order(list(psd_by_group), cfg)
+    notch = _notch(cfg)
     fig, ax = plt.subplots(figsize=(5.5, 4))
     ymax = 0
     for g in levels:
         freqs, psds = psd_by_group[g]
         freqs = np.asarray(freqs); arr = np.asarray(psds)
-        mask = (freqs >= lo) & (freqs <= hi)
         m = arr.mean(0); sem = arr.std(0, ddof=1) / np.sqrt(len(arr)) if len(arr) > 1 else np.zeros_like(m)
-        ax.plot(freqs[mask], m[mask], color=cmap[g], lw=1.8, label=f"{g} (n={len(arr)})")
-        ax.fill_between(freqs[mask], (m - sem)[mask], (m + sem)[mask],
-                        color=cmap[g], alpha=0.22, linewidth=0)
-        ymax = max(ymax, np.nanmax((m + sem)[mask]) if mask.any() else 0)
+        m, sem = _mask_notch(freqs, m, sem, notch=notch)
+        sel = (freqs >= lo) & (freqs <= hi)
+        ax.plot(freqs[sel], m[sel], color=cmap[g], lw=1.8, label=f"{g} (n={len(arr)})")
+        ax.fill_between(freqs[sel], (m - sem)[sel], (m + sem)[sel], color=cmap[g], alpha=0.20, linewidth=0)
+        if sel.any() and np.isfinite(m[sel]).any():
+            ymax = max(ymax, np.nanmax((m + sem)[sel]))
     ax.set_xlim(lo, hi)
     if ymax > 0:
-        ax.set_ylim(0, ymax * 1.1)   # autoescala a la dispersión de la banda
+        ax.set_ylim(0, ymax * 1.1)
     ax.set(xlabel="Frecuencia (Hz)", ylabel="PSD (amplitud²/Hz)",
            title=style.band_label(band_name, rng).replace("\n", " "))
     ax.legend()
@@ -117,50 +171,87 @@ def plot_band_psd_zoom(psd_by_group, band_name, rng, out_path, cfg):
 
 
 # ---------------------------------------------------------------------------
-# Boxplot por grupo (color + puntos + pie estadístico)
+# Boxplot por grupo (color + puntos + significancia + pie explicativo)
 # ---------------------------------------------------------------------------
 def plot_box(df, metric, gcol, cfg, out_path, ylabel=None, title=None,
-             footer_text=None):
+             stat_text=None, sig_pairs=None, ylog=False):
     levels, cmap = _order(df[gcol].dropna().unique(), cfg)
-    data = [df.loc[df[gcol] == g, metric].dropna().values for g in levels]
-    fig, ax = plt.subplots(figsize=(1.6 * len(levels) + 2, 4))
-    bp = ax.boxplot(data, labels=levels, showmeans=True, patch_artist=True,
-                    widths=0.6, medianprops=dict(color="#222"))
+    data = {g: df.loc[df[gcol] == g, metric].dropna().values for g in levels}
+    fig, ax = plt.subplots(figsize=(1.7 * len(levels) + 2, 4.4))
+    bp = ax.boxplot([data[g] for g in levels], labels=levels, showmeans=True,
+                    patch_artist=True, widths=0.6, medianprops=dict(color="#222"),
+                    meanprops=dict(marker="^", markerfacecolor="white",
+                                   markeredgecolor="#222", markersize=8))
     for patch, g in zip(bp["boxes"], levels):
         patch.set_facecolor(cmap[g]); patch.set_alpha(0.45)
     rng = np.random.default_rng(0)
-    for i, (g, vals) in enumerate(zip(levels, data), start=1):
-        ax.plot(rng.normal(i, 0.06, len(vals)), vals, "o", ms=4,
-                color=cmap[g], alpha=0.8, markeredgecolor="white", markeredgewidth=0.4)
+    for i, g in enumerate(levels, start=1):
+        ax.plot(rng.normal(i, 0.06, len(data[g])), data[g], "o", ms=4,
+                color=cmap[g], alpha=0.85, markeredgecolor="white", markeredgewidth=0.4)
+    if ylog:
+        ax.set_yscale("log")
+    _sig_brackets(ax, {g: i for i, g in enumerate(levels, start=1)},
+                  sig_pairs or [], data, ylog=ylog)
     ax.set(ylabel=ylabel or metric, title=title or metric)
-    ax.set_xticklabels(levels, rotation=0)
-    _save(fig, out_path, cfg, footer_text)
+    footer = BOX_FOOTER + (f"\n{stat_text}" if stat_text else "")
+    _save(fig, out_path, cfg, footer)
 
 
 # ---------------------------------------------------------------------------
-# Barras de potencia por banda (color por grupo, etiqueta con Hz)
+# Potencia por banda — barras (descriptivo) o cajas (comparaciones)
 # ---------------------------------------------------------------------------
-def plot_bandpower_bars(df, gcol, cfg, out_path, suffix="abs", footer_text=None):
+def plot_bandpower(df, gcol, cfg, out_path, suffix="abs", kind="bar",
+                   sig_by_band=None):
+    """kind='bar' (media±SEM) o 'box' (caja+puntos). Escala Y log para ver las
+    bandas de alta frecuencia. Marca con asterisco las bandas con diferencia
+    significativa entre grupos (sig_by_band: {banda: p})."""
     bands_cfg = cfg.get("bands", {})
     levels, cmap = _order(df[gcol].dropna().unique(), cfg)
     cols = [f"{b}_{suffix}" for b in bands_cfg if f"{b}_{suffix}" in df.columns]
     names = [c.rsplit("_", 1)[0] for c in cols]
     labels = [style.band_label(n, bands_cfg[n]) for n in names]
     x = np.arange(len(names)); w = 0.8 / max(len(levels), 1)
-    fig, ax = plt.subplots(figsize=(max(7, 1.1 * len(names) + 2), 4.8))
-    for j, g in enumerate(levels):
-        sub = df[df[gcol] == g]
-        m = [sub[c].mean() for c in cols]
-        sem = [sub[c].std(ddof=1) / np.sqrt(max(sub[c].notna().sum(), 1)) for c in cols]
-        ax.bar(x + j * w, m, w, yerr=sem, capsize=3, color=cmap[g],
-               alpha=0.85, label=f"{g} (n={len(sub)})")
+    fig, ax = plt.subplots(figsize=(max(8, 1.3 * len(names) + 2), 5))
     ylab = {"abs": "Potencia absoluta (amplitud²)", "rel": "Potencia relativa",
             "rms": "RMS (amplitud)"}[suffix]
+
+    for j, g in enumerate(levels):
+        sub = df[df[gcol] == g]
+        xpos = x + j * w
+        if kind == "bar":
+            m = [sub[c].mean() for c in cols]
+            sem = [sub[c].std(ddof=1) / np.sqrt(max(sub[c].notna().sum(), 1)) for c in cols]
+            ax.bar(xpos, m, w, yerr=sem, capsize=3, color=cmap[g], alpha=0.85,
+                   label=f"{g} (n={len(sub)})")
+        else:  # box con puntos
+            for xi, c in zip(xpos, cols):
+                vals = sub[c].dropna().values
+                if len(vals) == 0:
+                    continue
+                ax.boxplot([vals], positions=[xi], widths=w * 0.9, patch_artist=True,
+                           showmeans=True, medianprops=dict(color="#222"),
+                           meanprops=dict(marker="^", markerfacecolor="white",
+                                          markeredgecolor="#222", markersize=6),
+                           boxprops=dict(facecolor=cmap[g], alpha=0.45))
+                rng = np.random.default_rng(0)
+                ax.plot(rng.normal(xi, w * 0.08, len(vals)), vals, "o", ms=3,
+                        color=cmap[g], alpha=0.8)
+            ax.plot([], [], "s", color=cmap[g], alpha=0.6, label=f"{g} (n={len(sub)})")
+
+    ax.set_yscale("log")   # log Y: hace visibles las bandas de alta frecuencia
     ax.set(xticks=x + w * (len(levels) - 1) / 2, ylabel=ylab,
-           title=f"Potencia por banda ({suffix}) — media ± SEM")
+           title=f"Potencia por banda ({suffix}) — escala log")
     ax.set_xticklabels(labels, fontsize=8)
+    # asteriscos de significancia por banda
+    if sig_by_band:
+        ytop = ax.get_ylim()[1]
+        for xi, n in zip(x + w * (len(levels) - 1) / 2, names):
+            p = sig_by_band.get(n)
+            if p is not None and p < 0.05:
+                ax.text(xi, ytop, _stars(p), ha="center", va="top", fontsize=11, color="#333")
     ax.legend()
-    _save(fig, out_path, cfg, footer_text)
+    foot = None if kind == "bar" else BOX_FOOTER
+    _save(fig, out_path, cfg, foot)
 
 
 # ---------------------------------------------------------------------------
