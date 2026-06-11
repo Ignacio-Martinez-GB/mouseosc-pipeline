@@ -57,14 +57,39 @@ def fit_specparam(freqs, psd, cfg_sp):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         fm.fit(freqs, psd, freq_range=cfg_sp.get("freq_range", [1.0, 300.0]))
-    res = fm.results.get_results()
-    peaks_raw = res.peak_converted
+    return _extract_results(fm)
+
+
+def _extract_results(fm):
+    """
+    Extrae aperiodic_params [offset, exponente], peaks [[CF,PW,BW]...] y r_squared
+    de un modelo ya ajustado, COMPATIBLE con varias versiones de specparam:
+
+      - specparam 2.x : los resultados viven en fm.results.get_results()
+                        (aperiodic_fit / peak_converted / metrics).
+      - specparam 1.x / FOOOF : fm.get_results() devuelve un FitResults con
+                        aperiodic_params / peak_params / r_squared.
+
+    Se prueban en orden y se devuelve lo primero que funcione, así el pipeline no
+    depende de una versión concreta.
+    """
+    # --- specparam 2.x ---
+    if hasattr(fm, "results") and hasattr(fm.results, "get_results"):
+        res = fm.results.get_results()
+        peaks_raw = getattr(res, "peak_converted", None)
+        peaks = peaks_raw.tolist() if peaks_raw is not None and len(peaks_raw) > 0 else []
+        metrics = getattr(res, "metrics", {}) or {}
+        return {"aperiodic_params": res.aperiodic_fit.tolist(),
+                "peaks": peaks,
+                "r_squared": float(metrics.get("gof_rsquared", np.nan))}
+
+    # --- specparam 1.x / FOOOF ---
+    res = fm.get_results()   # FitResults(aperiodic_params, peak_params, r_squared, ...)
+    peaks_raw = getattr(res, "peak_params", None)
     peaks = peaks_raw.tolist() if peaks_raw is not None and len(peaks_raw) > 0 else []
-    return {
-        "aperiodic_params": res.aperiodic_fit.tolist(),
-        "peaks": peaks,
-        "r_squared": float(res.metrics.get("gof_rsquared", np.nan)),
-    }
+    return {"aperiodic_params": list(np.asarray(res.aperiodic_params, dtype=float)),
+            "peaks": peaks,
+            "r_squared": float(getattr(res, "r_squared", np.nan))}
 
 
 def analyze_recording(epochs, fs, cfg, window_s=None):

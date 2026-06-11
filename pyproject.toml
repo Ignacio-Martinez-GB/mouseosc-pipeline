@@ -28,7 +28,7 @@ dependencies = [
 
 [project.optional-dependencies]
 # Análisis aperiódico/periódico (separación 1/f). Pesado: opcional.
-specparam = ["specparam==2.0.0rc3"]
+specparam = ["specparam>=1.0"]   # el código soporta API de specparam 1.x y 2.x
 # Lectores de formato extra. Se importan solo si el usuario los necesita.
 abf = ["pyabf==2.3.8"]
 nwb = ["pynwb==2.8.1"]
