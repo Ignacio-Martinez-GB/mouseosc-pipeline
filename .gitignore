@@ -1,3 +1,6 @@
+# imágenes sueltas en la raíz (temporales; las figuras van en resultados/)
+/*.png
+
 # entornos y cachés
 .venv/
 __pycache__/

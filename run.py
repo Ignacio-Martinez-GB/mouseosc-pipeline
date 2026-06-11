@@ -28,6 +28,7 @@ from __future__ import annotations
 import sys
 import argparse
 from pathlib import Path
+from itertools import combinations
 
 import numpy as np
 import pandas as pd
@@ -47,7 +48,6 @@ if not ((3, 10) <= sys.version_info[:2] <= (3, 12)):
 
 from mouseosc import (io, preprocessing as pp, spectral, bands, pac, bursts,
                       stats, checks, report, viz, export)
-from mouseosc.provenance import header_text
 
 
 def load_config(path):
@@ -130,9 +130,8 @@ def cmd_run(args, validate_only=False):
         print(f"AVISO: grupos en el manifiesto no declarados en config.groups.expected: {found-expected}")
 
     rows, check_records = [], []
-    psd_by_group = {}            # {grupo: [psd, ...]}
-    freqs_by_group = {}          # {grupo: vector de frecuencias}
-    recids_by_group = {}         # {grupo: [rec_id, ...]} para el PSD por sujeto
+    psd_store = {}               # {rec_id: psd}  → reconstruimos cualquier subconjunto
+    freqs_ref = [None]           # vector de frecuencias (común a todos los registros)
     _como_signal = [None]        # guarda una señal limpia para el comodulograma
 
     # Verificación de configuración (una vez): definición de bandas.
@@ -159,9 +158,8 @@ def cmd_run(args, validate_only=False):
             return 1
         if row is not None and not validate_only:
             rows.append(row)
-            psd_by_group.setdefault(rec.group, []).append(spec["psd"])
-            recids_by_group.setdefault(rec.group, []).append(rec.rec_id)
-            freqs_by_group[rec.group] = spec["freqs"]
+            psd_store[rec.rec_id] = spec["psd"]
+            freqs_ref[0] = spec["freqs"]
             if _como_signal[0] is None:
                 _como_signal[0] = spec["_signal_clean"]
 
@@ -177,47 +175,52 @@ def cmd_run(args, validate_only=False):
         return 1
 
     df = pd.DataFrame(rows)
-    gcol = cfg["statistics"]["group_col"]
+    freqs = freqs_ref[0]
+    viz.style.apply_style()      # apariencia consistente en todas las figuras
 
-    # --- Maestro (una fila por registro, todas las métricas) ---
-    export.export_master(df, out_dir, cfg)
+    # Maestro global (una fila por registro, todas las métricas)
+    export._save_csv(df, out_dir / "metrics_all.csv", cfg)
     print(f"Maestro: {out_dir/'metrics_all.csv'}  ({len(df)} registros)")
 
-    # --- Espectro: figura + datos detrás + PSD por sujeto ---
-    if psd_by_group:
-        export.export_spectral(psd_by_group, freqs_by_group, recids_by_group, out_dir, cfg)
-        print(f"Espectro: {out_dir/'espectro'}")
+    # ---------- BLOQUE DESCRIPTIVO (todos los grupos juntos) ----------
+    desc = cfg.get("descriptivo", {})
+    if desc.get("enabled", True):
+        by = desc.get("by", cfg["statistics"]["group_col"])
+        if by in df.columns:
+            n = export.export_analyses(df, psd_store, freqs, by,
+                                       out_dir / "descriptivo", cfg, label="(todos)")
+            print(f"Descriptivo (por '{by}'): {out_dir/'descriptivo'}  ({n} sig.)")
 
-    # --- Bandas: barras + boxplots + prism + largo ---
-    export.export_bands(df, out_dir, cfg)
-    print(f"Bandas: {out_dir/'bandas'}")
+    # ---------- COMPARACIONES por pares de 2 grupos ----------
+    comp_root = out_dir / "comparaciones"
+    for comp in cfg.get("comparisons", []):
+        if not comp.get("enabled", False):
+            continue
+        by, within, name = comp["by"], comp.get("within"), comp["name"]
+        if by not in df.columns:
+            print(f"AVISO: comparación '{name}' omitida: falta la columna '{by}' en el manifiesto.")
+            continue
+        # estratos: o bien el dataset completo, o un subconjunto por cada nivel de `within`
+        if within and within in df.columns:
+            estratos = [(f"{within}={lv}", df[df[within] == lv]) for lv in sorted(df[within].dropna().unique())]
+        else:
+            estratos = [("", df)]
+        for est_label, df_est in estratos:
+            levels = sorted(df_est[by].dropna().unique())
+            for a, b in combinations(levels, 2):     # todas las parejas
+                pair = df_est[df_est[by].isin([a, b])]
+                parts = [name] + ([est_label] if est_label else []) + [f"{a}_vs_{b}"]
+                sub = comp_root.joinpath(*parts)
+                n = export.export_analyses(pair, psd_store, freqs, by, sub, cfg,
+                                           label=f"({a} vs {b})")
+                print(f"  {name}: {a} vs {b}{' ['+est_label+']' if est_label else ''} → {n} sig.")
 
-    # --- Specparam / PAC / Bursts (solo si produjeron columnas) ---
-    export.export_specparam(df, out_dir, cfg)
-    export.export_pac(df, out_dir, cfg)
-    export.export_bursts(df, out_dir, cfg)
-
-    # --- Estadística de grupos sobre todas las métricas numéricas ---
-    if df[gcol].nunique() >= 2:
-        metric_cols = [c for c in df.columns
-                       if c.endswith(("_abs", "_rel", "_rms", "_mi", "_mvl"))
-                       or c in ("aperiodic_exponent", "aperiodic_offset",
-                                "median_freq", "spectral_entropy", "spectral_edge_95")
-                       or c.startswith("burst_")]
-        metric_cols = [c for c in metric_cols if c != "sum_bands_abs"]
-        stats_df = stats.compare_all(df, metric_cols, cfg)
-        export.export_stats(stats_df, out_dir, cfg)
-        n_sig = int(stats_df["significant"].sum()) if len(stats_df) else 0
-        print(f"Estadística: {out_dir/'estadistica'}  ({n_sig} comparaciones significativas)")
-
-    # --- Comodulograma (opcional, caro) ---
+    # ---------- Comodulograma global (opcional, caro) ----------
     if cfg.get("pac", {}).get("comodulogram", {}).get("enabled", False) and _como_signal[0] is not None:
-        d = out_dir / "pac"; d.mkdir(parents=True, exist_ok=True)
+        d = out_dir / "descriptivo" / "pac"; d.mkdir(parents=True, exist_ok=True)
         ph, am, mi = pac.compute_comodulogram(_como_signal[0], cfg["preprocessing"]["fs"], cfg)
         viz.plot_comodulogram(ph, am, mi, d / "comodulograma.png", cfg)
-        # datos detrás del comodulograma
-        import pandas as _pd
-        export._save_csv(_pd.DataFrame(mi, index=am, columns=ph),
+        export._save_csv(pd.DataFrame(mi, index=am, columns=ph),
                          d / "comodulograma_datos.csv", cfg, index=True)
     return 0
 

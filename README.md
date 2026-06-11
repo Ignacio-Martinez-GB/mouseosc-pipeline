@@ -132,33 +132,45 @@ python run.py run
 # → la estadística detecta la diferencia inyectada en gamma_lo (p≈0.002)
 ```
 
-## Estructura de salidas (una carpeta por análisis)
+## Segmentos de comparación (config)
 
-Tras `run`, en `resultados/` encuentras, por cada tipo de análisis, su figura,
-los **datos detrás** de la figura, y CSVs en **formato GraphPad Prism**
-(columnas = grupos, filas = valor por animal, pegables directo):
+Defines en `config.yaml` qué comparaciones generar. Cada bloque produce su propia
+carpeta con estadística de **dos grupos** para **todas las parejas** de los
+niveles de `by`:
+
+```yaml
+descriptivo: {enabled: true, by: "group"}      # todos los grupos juntos
+comparisons:
+  - {name: "grupo",          by: "group", within: null,  enabled: true}
+  - {name: "grupo_por_sexo", by: "group", within: "sex", enabled: false}  # estratifica por sexo
+  - {name: "sexo",           by: "sex",   within: null,  enabled: false}
+```
+
+`by` y `within` son columnas del **manifiesto** (añade `sex`, `condition`, etc.
+para poder compararlas). `within` repite la comparación dentro de cada nivel
+(p. ej. control vs pups por separado en hembras y en machos).
+
+## Estructura de salidas
 
 ```
 resultados/
   report.html                 reporte de salud
-  metrics_all.csv             maestro: una fila por registro, todas las métricas
-  espectro/
-    psd_por_grupo.png
-    psd_grupo_media_sem.csv    datos detrás de la figura (freq, media, sem por grupo)
-    psd_por_sujeto.csv         PSD completo: una columna por registro
-  bandas/
-    bandpower_abs.png, bandpower_rel.png, box_<banda>_<abs|rel>.png
-    bandas_largo.csv           datos completos (formato largo)
-    prism/<banda>_<abs|rel|rms>.csv   ← pegables en Prism
-  specparam/   (si specparam activo)  box_*.png + prism/*.csv
-  pac/         (si PAC activo)        box_pac_*.png + prism/*.csv [+ comodulograma]
-  bursts/      (si bursts activo)     box_burst_*.png + prism/*.csv
-  estadistica/
-    stats_comparisons.csv      omnibus + pares con corrección múltiple
+  metrics_all.csv             maestro global (una fila por registro)
+  descriptivo/                ← todos los grupos juntos
+    espectro/   psd_por_grupo.png, psd_con_bandas.png, por_banda/psd_<banda>.png (zoom),
+                psd_media_sem.csv (datos detrás), psd_por_sujeto.csv
+    bandas/     bandpower_abs/rel.png, box_<banda>_<abs|rel>.png (con pie estadístico),
+                prism/<metrica>.csv, bandas_largo.csv
+    specparam/  pac/  bursts/   (si activos) box_*.png + prism/*.csv
+    estadistica/ stats_comparisons.csv ; metrics.csv
+  comparaciones/
+    <nombre>/<A>_vs_<B>/...           misma estructura, 2 grupos, stats de 2 grupos
+    <nombre>/<sex=…>/<A>_vs_<B>/...   si usaste `within`
 ```
 
-Los CSV de `prism/` no llevan cabecera: su primera fila son los nombres de grupo,
-así que se copian y pegan tal cual en una tabla "Column" de GraphPad Prism.
+Cada figura usa la **paleta fija por grupo** (`config.plotting.palette`), muestra
+el método estadístico al pie y las bandas llevan su rango en Hz. Los CSV de
+`prism/` no llevan cabecera (1ª fila = grupos) → pegables en GraphPad Prism.
 
 ## Recetas
 

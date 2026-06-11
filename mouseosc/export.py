@@ -1,207 +1,181 @@
 """
 ===============================================================================
-EXPORTACIÓN DE RESULTADOS — una carpeta por análisis
+EXPORTACIÓN POR SEGMENTO DE ANÁLISIS
 ===============================================================================
 
-Organiza las salidas para que cada tipo de análisis tenga lo suyo:
-  - su(s) figura(s),
-  - los DATOS DETRÁS de cada figura (lo que se graficó, no solo la imagen),
-  - los datos COMPLETOS del análisis (formato largo),
-  - CSVs en formato GraphPad Prism (columnas = grupos, filas = valores por
-    sujeto) listos para copiar y pegar.
+Un MISMO motor (`export_analyses`) exporta cualquier subconjunto de datos
+agrupado por una columna (group, sex, …). Lo usan tanto:
+  - el bloque DESCRIPTIVO (todos los grupos juntos), como
+  - cada COMPARACIÓN por pares de 2 grupos (todas las combinaciones).
 
-Estructura generada en `resultados/`:
+Por cada segmento se crea una carpeta con:
+  espectro/   PSD por grupo (log-log) + PSD con bandas + PSD por banda (zoom)
+              + datos detrás (media/sem) + PSD por sujeto.
+  bandas/     barras abs/rel + boxplots por banda (con pie estadístico) +
+              prism/ (CSV columnas=grupos) + datos largos.
+  specparam/  (si hay) boxplots + prism.
+  pac/        (si hay) boxplots + prism.
+  bursts/     (si hay) boxplots + prism.
+  estadistica/ stats_comparisons.csv (2 grupos o omnibus+pares).
+  metrics.csv  maestro del segmento (filas = registros del subconjunto).
 
-  metrics_all.csv            ← maestro: una fila por registro, todas las métricas
-  espectro/
-    psd_por_grupo.png
-    psd_grupo_media_sem.csv  ← datos detrás de la figura (freq, media, sem por grupo)
-    psd_por_sujeto.csv       ← PSD completo: una columna por registro
-  bandas/
-    bandpower_abs.png, bandpower_rel.png
-    box_<banda>_<abs|rel>.png
-    bandas_largo.csv         ← datos completos (formato largo)
-    prism/<banda>_<abs|rel|rms>.csv
-  specparam/   (si está activo)
-    box_aperiodic_exponent.png, box_aperiodic_offset.png
-    prism/aperiodic_*.csv
-  pac/         (si está activo)
-    box_pac_<par>_<mi|mvl>.png
-    prism/pac_<par>_<mi|mvl>.csv
-  bursts/      (si está activo)
-    box_burst_*.png ; prism/*.csv
-  estadistica/
-    stats_comparisons.csv    ← omnibus + pares con corrección múltiple
-
-Formato Prism: cada columna es un grupo; cada fila, el valor de un sujeto. Las
-columnas de distinto largo se rellenan con celdas vacías. Pegable directo en una
-tabla "Column" de GraphPad Prism.
+Los CSV de prism/ NO llevan cabecera: 1ª fila = nombres de grupo → pegables en
+GraphPad Prism.
 """
 from __future__ import annotations
 
+import copy
 from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from . import viz
+from . import viz, stats
 from .provenance import header_text
 
 
 # ---------------------------------------------------------------------------
-# Utilidades de formato
+# utilidades
 # ---------------------------------------------------------------------------
 def _save_csv(df, path, cfg, index=False):
-    """Guarda un CSV con cabecera de procedencia (1ª línea como comentario)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         f.write(header_text(cfg) + "\n")
         df.to_csv(f, index=index, na_rep="")
 
 
-def prism_wide(df, metric, group_col):
-    """Tabla ancha estilo Prism: una columna por grupo, filas = valores por sujeto.
-    Las columnas de distinto largo quedan rellenas con vacío (NaN→'')."""
-    groups = sorted(df[group_col].dropna().unique())
-    series = {g: df.loc[df[group_col] == g, metric].dropna().reset_index(drop=True)
+def _prism(df, metric, gcol, path):
+    """CSV Prism (columnas=grupo, filas=valor por sujeto), sin cabecera."""
+    groups = sorted(df[gcol].dropna().unique())
+    series = {g: df.loc[df[gcol] == g, metric].dropna().reset_index(drop=True)
               for g in groups}
-    return pd.DataFrame(series)   # alinea por índice y rellena con NaN
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(series).to_csv(path, index=False, na_rep="")
 
 
-def _prism_for_metrics(df, metrics, group_col, out_dir, cfg):
-    """Escribe un CSV Prism por cada métrica que exista en df.
-    SIN cabecera de procedencia: la 1ª fila son los nombres de grupo, para que
-    se pueda copiar/pegar directo en una tabla de GraphPad Prism."""
+def _footer(df, metric, gcol, cfg):
+    """Texto del pie: prueba estadística usada y p-valor (omnibus del subconjunto)."""
+    paired = cfg.get("statistics", {}).get("paired", False)
+    data = [df.loc[df[gcol] == g, metric].dropna().values
+            for g in sorted(df[gcol].dropna().unique())]
+    data = [d for d in data if len(d) >= 1]
+    if len(data) < 2 or any(len(d) < 2 for d in data):
+        return "n insuficiente para prueba estadística"
+    try:
+        name, _stat, p = stats._omnibus(data, paired)
+        return f"{name}: p = {p:.4f}" + ("" if p >= 0.05 else "  (*)")
+    except Exception:
+        return ""
+
+
+def _psd_by_group(df, psd_store, freqs, gcol):
+    out, ids = {}, {}
+    for g in sorted(df[gcol].dropna().unique()):
+        recs = [r for r in df.loc[df[gcol] == g, "rec_id"] if r in psd_store]
+        if recs:
+            out[g] = (freqs, [psd_store[r] for r in recs])
+            ids[g] = recs
+    return out, ids
+
+
+# ---------------------------------------------------------------------------
+# motor único
+# ---------------------------------------------------------------------------
+def export_analyses(df, psd_store, freqs, gcol, out_dir, cfg, label=""):
+    out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    written = []
-    for m in metrics:
-        if m in df.columns and df[m].notna().any():
-            prism_wide(df, m, group_col).to_csv(out_dir / f"{m}.csv",
-                                                index=False, na_rep="")
-            written.append(m)
-    return written
-
-
-# ---------------------------------------------------------------------------
-# Maestro
-# ---------------------------------------------------------------------------
-def export_master(df, out_dir, cfg):
-    _save_csv(df, out_dir / "metrics_all.csv", cfg)
-
-
-# ---------------------------------------------------------------------------
-# Espectro: figura PSD por grupo + datos detrás + PSD por sujeto
-# ---------------------------------------------------------------------------
-def export_spectral(psd_by_group, freqs_by_group, rec_ids_by_group, out_dir, cfg):
-    d = out_dir / "espectro"; d.mkdir(parents=True, exist_ok=True)
     save_fig = cfg.get("output", {}).get("save_figures", True)
+    scale = (cfg.get("plotting", {}) or {}).get("psd_scale", "loglog")
+    scales = ["loglog", "semilog"] if scale == "both" else [scale]
+    bands_cfg = cfg.get("bands", {})
 
-    # Figura
-    if save_fig:
-        pbg = {g: (freqs_by_group[g], psds) for g, psds in psd_by_group.items()}
-        viz.plot_group_psd(pbg, d / "psd_por_grupo.png", cfg)
+    # maestro del segmento
+    _save_csv(df, out_dir / "metrics.csv", cfg)
 
-    # Datos DETRÁS de la figura: freq, <grupo>_media, <grupo>_sem
-    any_g = next(iter(freqs_by_group))
-    out = {"freq_hz": freqs_by_group[any_g]}
-    for g, psds in psd_by_group.items():
-        arr = np.array(psds)
-        out[f"{g}_media"] = arr.mean(0)
-        out[f"{g}_sem"] = arr.std(0, ddof=1) / np.sqrt(len(arr)) if len(arr) > 1 else np.zeros(arr.shape[1])
-    _save_csv(pd.DataFrame(out), d / "psd_grupo_media_sem.csv", cfg)
+    # ---------------- ESPECTRO ----------------
+    pbg, ids = _psd_by_group(df, psd_store, freqs, gcol)
+    if pbg:
+        d = out_dir / "espectro"; d.mkdir(exist_ok=True)
+        ttl = f"PSD por grupo {label}".strip()
+        if save_fig:
+            for sc in scales:
+                suf = "" if len(scales) == 1 else f"_{sc}"
+                viz.plot_group_psd(pbg, d / f"psd_por_grupo{suf}.png", cfg, scale=sc, title=ttl)
+            viz.plot_psd_bands(pbg, d / "psd_con_bandas.png", cfg, scale=scales[0])
+            # PSD por banda con zoom (sub-bandas en detalle)
+            db = d / "por_banda"; db.mkdir(exist_ok=True)
+            for name, rng in bands_cfg.items():
+                viz.plot_band_psd_zoom(pbg, name, rng, db / f"psd_{name}.png", cfg)
+        # datos detrás de la figura
+        any_g = next(iter(pbg)); fr = pbg[any_g][0]
+        mean_sem = {"freq_hz": fr}
+        for g, (_, psds) in pbg.items():
+            arr = np.asarray(psds)
+            mean_sem[f"{g}_media"] = arr.mean(0)
+            mean_sem[f"{g}_sem"] = arr.std(0, ddof=1) / np.sqrt(len(arr)) if len(arr) > 1 else np.zeros(arr.shape[1])
+        _save_csv(pd.DataFrame(mean_sem), d / "psd_media_sem.csv", cfg)
+        full = {"freq_hz": fr}
+        for g, (_, psds) in pbg.items():
+            for rid, psd in zip(ids[g], psds):
+                full[rid] = psd
+        _save_csv(pd.DataFrame(full), d / "psd_por_sujeto.csv", cfg)
 
-    # PSD COMPLETO por sujeto: freq + una columna por registro
-    full = {"freq_hz": freqs_by_group[any_g]}
-    for g, psds in psd_by_group.items():
-        for rid, psd in zip(rec_ids_by_group[g], psds):
-            full[rid] = psd
-    _save_csv(pd.DataFrame(full), d / "psd_por_sujeto.csv", cfg)
-
-
-# ---------------------------------------------------------------------------
-# Bandas: barras abs/rel + boxplots por banda + prism + largo
-# ---------------------------------------------------------------------------
-def export_bands(df, out_dir, cfg):
-    d = out_dir / "bandas"; d.mkdir(parents=True, exist_ok=True)
-    gcol = cfg["statistics"]["group_col"]
-    bands = list(cfg.get("bands", {}).keys())
-    save_fig = cfg.get("output", {}).get("save_figures", True)
-
-    # Barras de potencia por banda (abs y rel)
+    # ---------------- BANDAS ----------------
+    d = out_dir / "bandas"; d.mkdir(exist_ok=True)
     if save_fig:
         for suf in ("abs", "rel"):
-            if any(f"{b}_{suf}" in df.columns for b in bands):
-                viz.plot_bandpower_bars(df, cfg, d / f"bandpower_{suf}.png", suffix=suf)
-        # Boxplot por banda (abs y rel): vista por animal
-        for b in bands:
+            if any(f"{b}_{suf}" in df.columns for b in bands_cfg):
+                viz.plot_bandpower_bars(df, gcol, cfg, d / f"bandpower_{suf}.png", suffix=suf)
+        for b in bands_cfg:
             for suf in ("abs", "rel"):
                 m = f"{b}_{suf}"
                 if m in df.columns:
-                    viz.plot_band_box(df, m, cfg, d / f"box_{m}.png",
-                                      ylabel=f"{b} ({suf})", title=f"{b} ({suf}) por grupo")
-
-    # CSVs Prism (abs, rel, rms por banda) — son también los datos de los boxplots
-    metrics = [f"{b}_{s}" for b in bands for s in ("abs", "rel", "rms")]
-    _prism_for_metrics(df, metrics, gcol, d / "prism", cfg)
-
-    # Datos COMPLETOS en formato largo
-    long_cols = ["rec_id", gcol, "animal_id"] + [m for m in metrics if m in df.columns]
-    long = df[[c for c in long_cols if c in df.columns]].melt(
-        id_vars=[c for c in ["rec_id", gcol, "animal_id"] if c in df.columns],
-        var_name="metrica", value_name="valor")
+                    viz.plot_box(df, m, gcol, cfg, d / f"box_{m}.png",
+                                 ylabel=f"{b} ({suf})", title=f"{b} ({suf})",
+                                 footer_text=_footer(df, m, gcol, cfg))
+    band_metrics = [f"{b}_{s}" for b in bands_cfg for s in ("abs", "rel", "rms")]
+    for m in band_metrics:
+        if m in df.columns and df[m].notna().any():
+            _prism(df, m, gcol, d / "prism" / f"{m}.csv")
+    idv = [c for c in ("rec_id", gcol, "animal_id") if c in df.columns]
+    long = df[idv + [m for m in band_metrics if m in df.columns]].melt(
+        id_vars=idv, var_name="metrica", value_name="valor")
     _save_csv(long, d / "bandas_largo.csv", cfg)
 
+    # ---------------- SPECPARAM / PAC / BURSTS ----------------
+    _export_metric_group(df, gcol, cfg, out_dir / "specparam",
+                         [c for c in ("aperiodic_exponent", "aperiodic_offset", "specparam_r2") if c in df.columns], save_fig)
+    _export_metric_group(df, gcol, cfg, out_dir / "pac",
+                         [c for c in df.columns if c.startswith("pac_") and c.endswith(("_mi", "_mvl"))], save_fig)
+    _export_metric_group(df, gcol, cfg, out_dir / "bursts",
+                         [c for c in df.columns if c.startswith("burst_")], save_fig,
+                         box_only_suffixes=("_n_bursts", "_burst_rate_hz", "_mean_duration_ms", "_burst_fraction"))
 
-# ---------------------------------------------------------------------------
-# Specparam (1/f)
-# ---------------------------------------------------------------------------
-def export_specparam(df, out_dir, cfg):
-    cols = [c for c in ("aperiodic_exponent", "aperiodic_offset", "specparam_r2")
-            if c in df.columns]
+    # ---------------- ESTADÍSTICA ----------------
+    if df[gcol].nunique() >= 2:
+        cfg2 = copy.deepcopy(cfg); cfg2["statistics"]["group_col"] = gcol
+        metric_cols = [c for c in df.columns
+                       if c.endswith(("_abs", "_rel", "_rms", "_mi", "_mvl"))
+                       or c in ("aperiodic_exponent", "aperiodic_offset", "median_freq",
+                                "spectral_entropy", "spectral_edge_95")
+                       or c.startswith("burst_")]
+        metric_cols = [c for c in metric_cols if c != "sum_bands_abs"]
+        sdf = stats.compare_all(df, metric_cols, cfg2)
+        _save_csv(sdf, out_dir / "estadistica" / "stats_comparisons.csv", cfg)
+        return int(sdf["significant"].sum()) if len(sdf) else 0
+    return 0
+
+
+def _export_metric_group(df, gcol, cfg, out_dir, cols, save_fig, box_only_suffixes=None):
+    """Exporta un grupo de métricas (specparam/pac/bursts): boxplots + prism."""
     if not cols:
         return
-    d = out_dir / "specparam"; d.mkdir(parents=True, exist_ok=True)
-    gcol = cfg["statistics"]["group_col"]
-    if cfg.get("output", {}).get("save_figures", True):
-        for m in cols:
-            viz.plot_band_box(df, m, cfg, d / f"box_{m}.png", ylabel=m, title=f"{m} por grupo")
-    _prism_for_metrics(df, cols, gcol, d / "prism", cfg)
-
-
-# ---------------------------------------------------------------------------
-# PAC
-# ---------------------------------------------------------------------------
-def export_pac(df, out_dir, cfg):
-    cols = [c for c in df.columns if c.startswith("pac_") and c.endswith(("_mi", "_mvl"))]
-    if not cols:
-        return
-    d = out_dir / "pac"; d.mkdir(parents=True, exist_ok=True)
-    gcol = cfg["statistics"]["group_col"]
-    if cfg.get("output", {}).get("save_figures", True):
-        for m in cols:
-            viz.plot_band_box(df, m, cfg, d / f"box_{m}.png", ylabel=m, title=f"{m} por grupo")
-    _prism_for_metrics(df, cols, gcol, d / "prism", cfg)
-
-
-# ---------------------------------------------------------------------------
-# Bursts
-# ---------------------------------------------------------------------------
-def export_bursts(df, out_dir, cfg):
-    cols = [c for c in df.columns if c.startswith("burst_")]
-    if not cols:
-        return
-    d = out_dir / "bursts"; d.mkdir(parents=True, exist_ok=True)
-    gcol = cfg["statistics"]["group_col"]
-    if cfg.get("output", {}).get("save_figures", True):
-        # solo boxplot de las métricas resumidas más interpretables
-        for m in [c for c in cols if c.endswith(("_n_bursts", "_burst_rate_hz",
-                                                 "_mean_duration_ms", "_burst_fraction"))]:
-            viz.plot_band_box(df, m, cfg, d / f"box_{m}.png", ylabel=m, title=f"{m} por grupo")
-    _prism_for_metrics(df, cols, gcol, d / "prism", cfg)
-
-
-# ---------------------------------------------------------------------------
-# Estadística
-# ---------------------------------------------------------------------------
-def export_stats(stats_df, out_dir, cfg):
-    d = out_dir / "estadistica"; d.mkdir(parents=True, exist_ok=True)
-    _save_csv(stats_df, d / "stats_comparisons.csv", cfg)
+    out_dir = Path(out_dir); out_dir.mkdir(parents=True, exist_ok=True)
+    box_cols = cols if box_only_suffixes is None else \
+        [c for c in cols if c.endswith(box_only_suffixes)]
+    if save_fig:
+        for m in box_cols:
+            viz.plot_box(df, m, gcol, cfg, out_dir / f"box_{m}.png",
+                         ylabel=m, title=m, footer_text=_footer(df, m, gcol, cfg))
+    for m in cols:
+        if df[m].notna().any():
+            _prism(df, m, gcol, out_dir / "prism" / f"{m}.csv")

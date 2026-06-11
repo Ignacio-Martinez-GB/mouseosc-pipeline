@@ -175,6 +175,48 @@ groups:
   expected: ["control", "tratamiento"]
 
 # -----------------------------------------------------------------------------
+# PLOTTING — apariencia de las figuras.
+# -----------------------------------------------------------------------------
+plotting:
+  psd_scale: "loglog"     # loglog | semilog | both  (escala de las figuras de PSD)
+  # Paleta de color por grupo. La CLAVE debe coincidir con el nombre del grupo en
+  # el manifiesto. Lo que no esté aquí recibe un color automático (consistente).
+  palette:
+    control: "#0072B2"    # azul
+    tratamiento: "#D55E00"  # naranja
+    pups: "#D55E00"
+    # hembra: "#CC79A7"
+    # macho: "#009E73"
+
+# -----------------------------------------------------------------------------
+# SEGMENTOS DE ANÁLISIS
+# -----------------------------------------------------------------------------
+# DESCRIPTIVO: una carpeta con TODOS los grupos juntos (PSD global, etc.).
+descriptivo:
+  enabled: true
+  by: "group"             # columna del manifiesto que define los grupos.
+
+# COMPARACIONES: cada bloque genera su propia carpeta con estadística de DOS
+# grupos para TODAS las combinaciones por pares de los niveles de `by`.
+#   by      : columna a comparar (group, sex, condition, …). Debe existir en el manifiesto.
+#   within  : (opcional) estratifica: repite la comparación dentro de cada nivel
+#             de esta columna (p. ej. comparar grupos por separado en hembras y machos).
+#   enabled : activa/desactiva este bloque sin borrarlo.
+comparisons:
+  - name: "grupo"            # control vs pups (todas las parejas de 'group')
+    by: "group"
+    within: null
+    enabled: true
+  - name: "grupo_por_sexo"   # control vs pups, por separado en cada sexo
+    by: "group"
+    within: "sex"            # requiere columna 'sex' en el manifiesto
+    enabled: false
+  - name: "sexo"             # hembra vs macho (todas las parejas de 'sex')
+    by: "sex"
+    within: null
+    enabled: false
+
+# -----------------------------------------------------------------------------
 # SALIDAS y verificación.
 # -----------------------------------------------------------------------------
 output:
