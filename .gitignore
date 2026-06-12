@@ -23,6 +23,7 @@ Datos/
 # manifiesto (es específico de cada usuario/dataset; no se versiona)
 manifest.csv
 manifest_*.csv
+!manifest_ejemplo.csv   # excepción: el ejemplo SÍ se versiona (muestra el formato)
 
 # guía local de git (no forma parte del paquete)
 GIT_Y_GITHUB.md

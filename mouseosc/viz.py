@@ -200,34 +200,35 @@ def plot_box(df, metric, gcol, cfg, out_path, ylabel=None, title=None,
 # ---------------------------------------------------------------------------
 # Potencia por banda — barras (descriptivo) o cajas (comparaciones)
 # ---------------------------------------------------------------------------
-def plot_bandpower(df, gcol, cfg, out_path, suffix="abs", kind="bar",
+def plot_bandpower(df, gcol, cfg, out_path, suffix="abs", kind="box",
                    sig_by_band=None):
-    """kind='bar' (media±SEM) o 'box' (caja+puntos). Escala Y log para ver las
-    bandas de alta frecuencia. Marca con asterisco las bandas con diferencia
-    significativa entre grupos (sig_by_band: {banda: p})."""
+    """Potencia por banda en CAJA Y BIGOTES con puntos (kind='box') o barras
+    (kind='bar'), escala Y log para ver las bandas de alta frecuencia.
+    Cuando hay 2 grupos, marca con un CORCHETE que une ambos grupos de cada banda
+    significativa (sig_by_band: {banda: p})."""
     bands_cfg = cfg.get("bands", {})
     levels, cmap = _order(df[gcol].dropna().unique(), cfg)
     cols = [f"{b}_{suffix}" for b in bands_cfg if f"{b}_{suffix}" in df.columns]
     names = [c.rsplit("_", 1)[0] for c in cols]
     labels = [style.band_label(n, bands_cfg[n]) for n in names]
     x = np.arange(len(names)); w = 0.8 / max(len(levels), 1)
-    fig, ax = plt.subplots(figsize=(max(8, 1.3 * len(names) + 2), 5))
+    fig, ax = plt.subplots(figsize=(max(8, 1.4 * len(names) + 2), 5))
     ylab = {"abs": "Potencia absoluta (amplitud²)", "rel": "Potencia relativa",
             "rms": "RMS (amplitud)"}[suffix]
 
+    band_max = np.full(len(names), 1e-12)   # máximo por banda (para colocar corchetes)
     for j, g in enumerate(levels):
         sub = df[df[gcol] == g]
         xpos = x + j * w
-        if kind == "bar":
-            m = [sub[c].mean() for c in cols]
-            sem = [sub[c].std(ddof=1) / np.sqrt(max(sub[c].notna().sum(), 1)) for c in cols]
-            ax.bar(xpos, m, w, yerr=sem, capsize=3, color=cmap[g], alpha=0.85,
-                   label=f"{g} (n={len(sub)})")
-        else:  # box con puntos
-            for xi, c in zip(xpos, cols):
-                vals = sub[c].dropna().values
-                if len(vals) == 0:
-                    continue
+        for bi, (xi, c) in enumerate(zip(xpos, cols)):
+            vals = sub[c].dropna().values
+            if len(vals) == 0:
+                continue
+            band_max[bi] = max(band_max[bi], np.nanmax(vals))
+            if kind == "bar":
+                m = np.nanmean(vals); sem = np.nanstd(vals, ddof=1) / np.sqrt(len(vals))
+                ax.bar(xi, m, w, yerr=sem, capsize=3, color=cmap[g], alpha=0.85)
+            else:
                 ax.boxplot([vals], positions=[xi], widths=w * 0.9, patch_artist=True,
                            showmeans=True, medianprops=dict(color="#222"),
                            meanprops=dict(marker="^", markerfacecolor="white",
@@ -236,21 +237,27 @@ def plot_bandpower(df, gcol, cfg, out_path, suffix="abs", kind="bar",
                 rng = np.random.default_rng(0)
                 ax.plot(rng.normal(xi, w * 0.08, len(vals)), vals, "o", ms=3,
                         color=cmap[g], alpha=0.8)
-            ax.plot([], [], "s", color=cmap[g], alpha=0.6, label=f"{g} (n={len(sub)})")
+        ax.plot([], [], "s", color=cmap[g], alpha=0.7, label=f"{g} (n={len(sub)})")
 
-    ax.set_yscale("log")   # log Y: hace visibles las bandas de alta frecuencia
+    ax.set_yscale("log")
     ax.set(xticks=x + w * (len(levels) - 1) / 2, ylabel=ylab,
            title=f"Potencia por banda ({suffix}) — escala log")
     ax.set_xticklabels(labels, fontsize=8)
-    # asteriscos de significancia por banda
-    if sig_by_band:
-        ytop = ax.get_ylim()[1]
-        for xi, n in zip(x + w * (len(levels) - 1) / 2, names):
+
+    # Corchete de significancia que UNE los dos grupos en cada banda (caso 2 grupos).
+    if sig_by_band and len(levels) >= 2:
+        x_left = x + 0 * w
+        x_right = x + (len(levels) - 1) * w
+        for bi, n in enumerate(names):
             p = sig_by_band.get(n)
             if p is not None and p < 0.05:
-                ax.text(xi, ytop, _stars(p), ha="center", va="top", fontsize=11, color="#333")
+                y = band_max[bi] * 1.4
+                ax.plot([x_left[bi], x_left[bi], x_right[bi], x_right[bi]],
+                        [y, y * 1.15, y * 1.15, y], lw=1.1, color="#333")
+                ax.text((x_left[bi] + x_right[bi]) / 2, y * 1.18, _stars(p),
+                        ha="center", va="bottom", fontsize=10, color="#333")
     ax.legend()
-    foot = None if kind == "bar" else BOX_FOOTER
+    foot = BOX_FOOTER if kind == "box" else None
     _save(fig, out_path, cfg, foot)
 
 

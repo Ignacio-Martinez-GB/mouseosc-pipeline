@@ -192,7 +192,8 @@ def cmd_run(args, validate_only=False):
         by = desc.get("by", cfg["statistics"]["group_col"])
         if by in df.columns:
             n = export.export_analyses(df, psd_store, freqs, by,
-                                       out_dir / "descriptivo", cfg, label="(todos)")
+                                       out_dir / "descriptivo", cfg, label="(todos)",
+                                       bandpower_kind="box")
             print(f"Descriptivo (por '{by}'): {out_dir/'descriptivo'}  ({n} sig.)")
 
     # ---------- COMPARACIONES por pares de 2 grupos ----------

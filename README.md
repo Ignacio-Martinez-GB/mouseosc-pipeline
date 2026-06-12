@@ -30,6 +30,7 @@ Esto crea el entorno, instala todo y corre las pruebas. Si ves `9 passed`, qued�
 **4. Prepara tus datos.** Pon tus archivos en una carpeta y crea el manifiesto:
    en `INICIO.py` pon `MODO = "scan"` y `CARPETA_DE_DATOS = "ruta/a/tus/datos"`, ▶ Run.
    Se crea `manifest.csv`: ábrelo y rellena la columna `group` (y `sex`, `condition`… si quieres compararlas).
+   Mira **`manifest_ejemplo.csv`** para ver el formato esperado (incluye `sex` y `condition`).
 
 **5. Ajusta y corre.** En `config.yaml` revisa `preprocessing.fs` (tu muestreo) y,
    si son `.mat`, `dataset.mat.channel`. Luego en `INICIO.py` pon `MODO = "validate"`
