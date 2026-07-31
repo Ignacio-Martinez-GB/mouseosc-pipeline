@@ -21,6 +21,58 @@ from .preprocessing import bandpass_filter
 _trapz = getattr(np, "trapezoid", None) or np.trapz
 
 
+def apply_analysis_band(cfg):
+    """
+    Recorta TODO el análisis al rango global cfg['analysis_band'] = [lo, hi].
+    Se aplica de forma consistente en todo el proyecto:
+      - las BANDAS se acotan SOLO en los extremos: una banda interior no cambia;
+        una que cruza el límite se recorta a él; una totalmente fuera se elimina.
+      - el PSD (Welch), specparam, el rango de potencia relativa, el tope de
+        armónicos de ruido y las bandas de PAC se acotan al mismo rango.
+    Si no hay analysis_band, no hace nada. Modifica y devuelve cfg.
+    """
+    ab = cfg.get("analysis_band")
+    if not ab:
+        return cfg
+    lo, hi = float(ab[0]), float(ab[1])
+
+    # 1) bandas: recortar solo los extremos; eliminar las que quedan vacías (fuera)
+    nb = {}
+    for name, (blo, bhi) in cfg.get("bands", {}).items():
+        clo, chi = max(blo, lo), min(bhi, hi)
+        if clo < chi:
+            nb[name] = [clo, chi]
+    cfg["bands"] = nb
+
+    # 2) PSD de Welch: el rango de análisis define los límites (0.4 se conserva
+    #    aunque el primer bin real dependa de la resolución de la ventana).
+    w = cfg.setdefault("spectral", {}).setdefault("welch", {})
+    w["freq_min"] = lo
+    w["freq_max"] = hi
+
+    # 3) specparam
+    sp = cfg["spectral"].setdefault("specparam", {})
+    fr = sp.get("freq_range", [1.0, 300.0])
+    sp["freq_range"] = [max(fr[0], lo), min(fr[1], hi)]
+
+    # 4) rango de referencia de potencia relativa
+    rp = cfg.setdefault("relative_power", {})
+    rr = rp.get("reference_range", [0.5, 160.0])
+    rp["reference_range"] = [max(rr[0], lo), min(rr[1], hi)]
+
+    # 5) tope de armónicos de ruido
+    if isinstance(cfg.get("noise"), dict):
+        cfg["noise"]["freq_max"] = min(cfg["noise"].get("freq_max", 200.0), hi)
+
+    # 6) bandas de PAC (fase/amplitud)
+    for pair in cfg.get("pac", {}).get("pairs", []) or []:
+        for k in ("phase", "amp"):
+            b = pair.get(k)
+            if b:
+                pair[k] = [max(b[0], lo), min(b[1], hi)]
+    return cfg
+
+
 def band_power(freqs, psd, lo, hi):
     """Integral del PSD en [lo,hi] Hz (área bajo la curva = potencia absoluta)."""
     mask = (freqs >= lo) & (freqs <= hi)

@@ -208,8 +208,10 @@ def plot_bandpower(df, gcol, cfg, out_path, suffix="abs", kind="box",
     significativa (sig_by_band: {banda: p})."""
     bands_cfg = cfg.get("bands", {})
     levels, cmap = _order(df[gcol].dropna().unique(), cfg)
-    cols = [f"{b}_{suffix}" for b in bands_cfg if f"{b}_{suffix}" in df.columns]
-    names = [c.rsplit("_", 1)[0] for c in cols]
+    # ordenar las bandas por FRECUENCIA (límite inferior), no por nombre
+    names = sorted([b for b in bands_cfg if f"{b}_{suffix}" in df.columns],
+                   key=lambda n: bands_cfg[n][0])
+    cols = [f"{n}_{suffix}" for n in names]
     labels = [style.band_label(n, bands_cfg[n]) for n in names]
     x = np.arange(len(names)); w = 0.8 / max(len(levels), 1)
     fig, ax = plt.subplots(figsize=(max(8, 1.4 * len(names) + 2), 5))

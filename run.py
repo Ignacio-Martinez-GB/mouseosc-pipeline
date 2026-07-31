@@ -47,12 +47,14 @@ if not ((3, 10) <= sys.version_info[:2] <= (3, 12)):
           "Crea el entorno con Python 3.12.")
 
 from mouseosc import (io, preprocessing as pp, spectral, bands, pac, bursts,
-                      stats, checks, report, viz, export)
+                      stats, checks, report, viz, export, noise)
 
 
 def load_config(path):
     with open(path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+        cfg = yaml.safe_load(f)
+    # Recorta TODO el análisis al rango global analysis_band (si está definido).
+    return bands.apply_analysis_band(cfg)
 
 
 # ---------------------------------------------------------------------------
@@ -96,45 +98,94 @@ def cmd_inspect(args):
         print("inspect actualmente soporta .mat. Para otros formatos usa el loader correspondiente.")
 
 
-def _process_one(rec, cfg):
-    """Procesa un registro: devuelve (fila_métricas|None, lista_checks, spec|None)."""
+def _process_base(rec, cfg):
+    """
+    Procesamiento COMÚN de un registro (una sola vez): carga, preprocesa (con el
+    notch de 60 Hz por defecto), calcula PSD y detecta contaminación por ruido.
+    Devuelve (base|None, checks). El `base` alimenta los 3 análisis sin recalcular.
+    """
     chk = []
     signal, fs = io.load_signal(rec, cfg)
     chk += checks.check_signal(signal, fs, cfg)
     if checks.worst_level(chk) == "error":
-        return None, chk, None
-
-    fs = cfg["preprocessing"]["fs"]   # tras validar, el análisis usa el fs del config
+        return None, chk
+    fs = cfg["preprocessing"]["fs"]
     pp_res = pp.full_pipeline(signal, fs, cfg["preprocessing"])
     chk += checks.check_preprocessing(pp_res, cfg)
     if checks.worst_level(chk) == "error":
-        return None, chk, None
+        return None, chk
+    freqs, psd = spectral.compute_psd_welch(
+        pp_res["epochs"], fs,
+        window_s=cfg["spectral"].get("primary_window_s", 2.0),
+        overlap=cfg["spectral"]["welch"].get("overlap", 0.5),
+        freq_min=cfg["spectral"]["welch"].get("freq_min", 0.5),
+        freq_max=cfg["spectral"]["welch"].get("freq_max", 500.0))
+    ninfo = {"flag": False}
+    if cfg.get("noise", {}).get("enabled", False):
+        ninfo = noise.detect_contamination(freqs, psd, pp_res["epochs"], fs, cfg)
+    base = {"rec": rec, "fs": fs, "freqs": freqs, "psd": psd,
+            "signal": pp_res["signal_clean"], "noise": ninfo}
+    return base, chk
 
-    spec = spectral.analyze_recording(pp_res["epochs"], fs, cfg)
-    spec["_signal_clean"] = pp_res["signal_clean"]   # para el comodulograma (opcional)
-    chk += checks.check_spectral(spec, cfg)
 
-    row = bands.compute_all_metrics(spec["freqs"], spec["psd"],
-                                    pp_res["signal_clean"], fs, cfg)
-    chk += checks.check_energy_conservation(spec["freqs"], spec["psd"], row, cfg)
-
+def _metrics_row(rec, freqs, psd, signal, fs, cfg):
+    """Construye la fila de métricas a partir de un PSD y una señal dados
+    (así el análisis 3 puede usar el PSD corregido / la señal con notch)."""
+    row = bands.compute_all_metrics(freqs, psd, signal, fs, cfg)
+    sp_cfg = cfg.get("spectral", {}).get("specparam", {})
+    if sp_cfg.get("enabled", False):
+        try:
+            r = spectral.fit_specparam(freqs, psd, sp_cfg)
+            row["aperiodic_offset"] = r["aperiodic_params"][0]
+            row["aperiodic_exponent"] = r["aperiodic_params"][-1]
+            row["specparam_r2"] = r["r_squared"]
+        except Exception:
+            pass
     if cfg.get("pac", {}).get("enabled", False):
-        for pr in pac.run_pac_analysis(pp_res["signal_clean"], fs, cfg):
+        for pr in pac.run_pac_analysis(signal, fs, cfg):
             row[f"pac_{pr['pair']}_mi"] = pr["mi"]
             row[f"pac_{pr['pair']}_mvl"] = pr["mvl"]
             row[f"pac_{pr['pair']}_p"] = pr["p_value"]
-
     if cfg.get("bursts", {}).get("enabled", False):
-        row.update(bursts.run_burst_analysis(pp_res["signal_clean"], fs, cfg))
-
-    if spec.get("specparam_ok"):
-        row["aperiodic_offset"] = spec["aperiodic_params"][0]
-        row["aperiodic_exponent"] = spec["aperiodic_params"][-1]
-        row["specparam_r2"] = spec["r_squared"]
-
+        row.update(bursts.run_burst_analysis(signal, fs, cfg))
     row.update({"rec_id": rec.rec_id, "group": rec.group, "animal_id": rec.animal_id})
     row.update(rec.meta)
-    return row, chk, spec
+    return row
+
+
+def emit_analysis(df, psd_store, freqs, out_dir, cfg):
+    """Genera el descriptivo + comparaciones por pares para UN conjunto de datos.
+    Devuelve el nº total de comparaciones significativas."""
+    out_dir = Path(out_dir); out_dir.mkdir(parents=True, exist_ok=True)
+    export._save_csv(df, out_dir / "metrics_all.csv", cfg)
+    total_sig = 0
+    desc = cfg.get("descriptivo", {})
+    if desc.get("enabled", True):
+        by = desc.get("by", cfg["statistics"]["group_col"])
+        if by in df.columns:
+            total_sig += export.export_analyses(df, psd_store, freqs, by,
+                                                out_dir / "descriptivo", cfg,
+                                                label="(todos)", bandpower_kind="box")
+    for comp in cfg.get("comparisons", []):
+        if not comp.get("enabled", False):
+            continue
+        by, within, name = comp["by"], comp.get("within"), comp["name"]
+        if by not in df.columns:
+            print(f"  AVISO: comparación '{name}' omitida (falta columna '{by}').")
+            continue
+        if within and within in df.columns:
+            estratos = [(f"{within}={lv}", df[df[within] == lv])
+                        for lv in sorted(df[within].dropna().unique())]
+        else:
+            estratos = [("", df)]
+        for est_label, df_est in estratos:
+            for a, b in combinations(sorted(df_est[by].dropna().unique()), 2):
+                pair = df_est[df_est[by].isin([a, b])]
+                parts = [name] + ([est_label] if est_label else []) + [f"{a}_vs_{b}"]
+                total_sig += export.export_analyses(
+                    pair, psd_store, freqs, by, out_dir / "comparaciones" / Path(*parts),
+                    cfg, label=f"({a} vs {b})", bandpower_kind="box")
+    return total_sig
 
 
 def cmd_run(args, validate_only=False):
@@ -153,10 +204,7 @@ def cmd_run(args, validate_only=False):
     if expected and set(found) - expected:
         print(f"AVISO: grupos no declarados en groups.expected: {set(found)-expected}")
 
-    rows, check_records = [], []
-    psd_store = {}               # {rec_id: psd}  → reconstruimos cualquier subconjunto
-    freqs_ref = [None]           # vector de frecuencias (común a todos los registros)
-    _como_signal = [None]        # guarda una señal limpia para el comodulograma
+    bases, check_records = [], []
 
     # Verificación de configuración (una vez): definición de bandas.
     cfg_checks = checks.check_band_definitions(cfg)
@@ -166,88 +214,133 @@ def cmd_run(args, validate_only=False):
         print("DETENIDO: definición de bandas inválida (ver reporte).")
         report.write_reports(check_records, cfg, out_dir)
         return 1
+
     for rec in tqdm(recs, desc="procesando"):
         try:
-            row, chk, spec = _process_one(rec, cfg)
+            base, chk = _process_base(rec, cfg)
         except Exception as e:
             chk = [checks.Check("carga", "excepcion", "error", f"{type(e).__name__}: {e}")]
-            row, spec = None, None
+            base = None
         verdict = checks.worst_level(chk)
         check_records.append({"rec_id": rec.rec_id, "group": rec.group,
                               "verdict": verdict, "checks": chk})
         if verdict == "error" and stop:
             print(f"\nDETENIDO por check rojo en {rec.rec_id}. "
-                  f"Revisa el reporte o pon checks.stop_on_error=false para continuar.")
+                  f"Pon checks.stop_on_error=false para continuar.")
             report.write_reports(check_records, cfg, out_dir)
             return 1
-        if row is not None and not validate_only:
-            rows.append(row)
-            psd_store[rec.rec_id] = spec["psd"]
-            freqs_ref[0] = spec["freqs"]
-            if _como_signal[0] is None:
-                _como_signal[0] = spec["_signal_clean"]
+        if base is not None and not validate_only:
+            bases.append(base)
 
     html = report.write_reports(check_records, cfg, out_dir)
     print(f"\nReporte de salud: {html}")
-
     if validate_only:
         print("Modo validate: no se generaron resultados.")
         return 0
-
-    if not rows:
+    if not bases:
         print("Ningún registro pasó los checks; no hay métricas que exportar.")
         return 1
 
-    df = pd.DataFrame(rows)
-    freqs = freqs_ref[0]
-    viz.style.apply_style()      # apariencia consistente en todas las figuras
+    freqs = bases[0]["freqs"]
+    viz.style.apply_style()
 
-    # Maestro global (una fila por registro, todas las métricas)
-    export._save_csv(df, out_dir / "metrics_all.csv", cfg)
-    print(f"Maestro: {out_dir/'metrics_all.csv'}  ({len(df)} registros)")
+    ncfg = cfg.get("noise", {})
+    if not ncfg.get("enabled", False):
+        # ---- comportamiento clásico: un solo análisis en la raíz ----
+        rows = [_metrics_row(b["rec"], freqs, b["psd"], b["signal"], b["fs"], cfg) for b in bases]
+        df = pd.DataFrame(rows)
+        psd_store = {b["rec"].rec_id: b["psd"] for b in bases}
+        n = emit_analysis(df, psd_store, freqs, out_dir, cfg)
+        print(f"Análisis completo en {out_dir}  ({n} comparaciones significativas)")
+        return 0
 
-    # ---------- BLOQUE DESCRIPTIVO (todos los grupos juntos) ----------
-    desc = cfg.get("descriptivo", {})
-    if desc.get("enabled", True):
-        by = desc.get("by", cfg["statistics"]["group_col"])
-        if by in df.columns:
-            n = export.export_analyses(df, psd_store, freqs, by,
-                                       out_dir / "descriptivo", cfg, label="(todos)",
-                                       bandpower_kind="box")
-            print(f"Descriptivo (por '{by}'): {out_dir/'descriptivo'}  ({n} sig.)")
+    # =====================================================================
+    # ESQUEMA DE RUIDO: hasta 3 análisis aislados
+    # =====================================================================
+    analyses = set(ncfg.get("analyses", [1, 2, 3]))
+    n_flagged = sum(b["noise"]["flag"] for b in bases)
+    print(f"\nRuido: {n_flagged}/{len(bases)} registros marcados como contaminados "
+          f"({ncfg.get('fundamental_hz',10)} Hz + armónicos).")
 
-    # ---------- COMPARACIONES por pares de 2 grupos ----------
-    comp_root = out_dir / "comparaciones"
-    for comp in cfg.get("comparisons", []):
-        if not comp.get("enabled", False):
-            continue
-        by, within, name = comp["by"], comp.get("within"), comp["name"]
-        if by not in df.columns:
-            print(f"AVISO: comparación '{name}' omitida: falta la columna '{by}' en el manifiesto.")
-            continue
-        # estratos: o bien el dataset completo, o un subconjunto por cada nivel de `within`
-        if within and within in df.columns:
-            estratos = [(f"{within}={lv}", df[df[within] == lv]) for lv in sorted(df[within].dropna().unique())]
+    # Reporte de detección (siempre que el esquema de ruido esté activo)
+    det_rows = []
+    for b in bases:
+        r = {"rec_id": b["rec"].rec_id, "group": b["rec"].group,
+             "contaminado": b["noise"]["flag"], "n_armonicos_hit": b["noise"].get("n_hits", 0)}
+        for h in b["noise"].get("harmonics", []):
+            r[f"snr_{h['f']:g}Hz"] = round(h["snr"], 2) if h["snr"] == h["snr"] else np.nan
+            r[f"persist_{h['f']:g}Hz"] = round(h["persistencia"], 2)
+        det_rows.append(r)
+    export._save_csv(pd.DataFrame(det_rows), out_dir / "deteccion_ruido" / "contaminacion.csv", cfg)
+    print(f"Detección de ruido: {out_dir/'deteccion_ruido'/'contaminacion.csv'}")
+
+    # Métricas base (análisis 1) — se calculan una vez y se reutilizan
+    rows1 = {b["rec"].rec_id: _metrics_row(b["rec"], freqs, b["psd"], b["signal"], b["fs"], cfg)
+             for b in bases}
+    for b in bases:
+        rows1[b["rec"].rec_id]["ruido_contaminado"] = b["noise"]["flag"]
+    psd1 = {b["rec"].rec_id: b["psd"] for b in bases}
+
+    # --- Análisis 1: NORMAL ---
+    if 1 in analyses:
+        df1 = pd.DataFrame(list(rows1.values()))
+        n = emit_analysis(df1, psd1, freqs, out_dir / "analisis_1_normal", cfg)
+        print(f"  [1] normal → {out_dir/'analisis_1_normal'} ({n} sig.)")
+
+    # --- Análisis 2: SIN RUIDO (excluye contaminados) ---
+    if 2 in analyses:
+        ok_ids = [b["rec"].rec_id for b in bases if not b["noise"]["flag"]]
+        df2 = pd.DataFrame([rows1[i] for i in ok_ids])
+        psd2 = {i: psd1[i] for i in ok_ids}
+        n = emit_analysis(df2, psd2, freqs, out_dir / "analisis_2_sin_ruido", cfg)
+        print(f"  [2] sin ruido ({len(ok_ids)}/{len(bases)}) → {out_dir/'analisis_2_sin_ruido'} ({n} sig.)")
+
+    # --- Análisis 3: CORREGIDO (resta espectral + notch para PAC/bursts) ---
+    if 3 in analyses:
+        metodo = ncfg.get("metodo_correccion", "interpolacion")
+        ref_f, ref_p = _load_noise_reference(cfg)
+        if ref_f is None and metodo != "interpolacion":
+            print(f"  [3] OMITIDO: el método '{metodo}' necesita referencia de ruido "
+                  f"(revisa noise.ruido) o usa metodo_correccion: interpolacion.")
         else:
-            estratos = [("", df)]
-        for est_label, df_est in estratos:
-            levels = sorted(df_est[by].dropna().unique())
-            for a, b in combinations(levels, 2):     # todas las parejas
-                pair = df_est[df_est[by].isin([a, b])]
-                parts = [name] + ([est_label] if est_label else []) + [f"{a}_vs_{b}"]
-                sub = comp_root.joinpath(*parts)
-                n = export.export_analyses(pair, psd_store, freqs, by, sub, cfg,
-                                           label=f"({a} vs {b})", bandpower_kind="box")
-                print(f"  {name}: {a} vs {b}{' ['+est_label+']' if est_label else ''} → {n} sig.")
-
-    # ---------- Comodulograma global (opcional, caro) ----------
-    if cfg.get("pac", {}).get("comodulogram", {}).get("enabled", False) and _como_signal[0] is not None:
-        d = out_dir / "descriptivo" / "pac"; d.mkdir(parents=True, exist_ok=True)
-        ph, am, mi = pac.compute_comodulogram(_como_signal[0], cfg["preprocessing"]["fs"], cfg)
-        viz.plot_comodulogram(ph, am, mi, d / "comodulograma.png", cfg)
-        export._save_csv(pd.DataFrame(mi, index=am, columns=ph),
-                         d / "comodulograma_datos.csv", cfg, index=True)
+            f0 = ncfg.get("fundamental_hz", 10.0); nh = ncfg.get("n_armonicos", 6)
+            fmax = ncfg.get("freq_max", 200.0); Q = ncfg.get("notch_Q", 30.0)
+            rows3, psd3 = [], {}
+            for b in bases:
+                rid = b["rec"].rec_id
+                if b["noise"]["flag"]:
+                    psd_c = noise.correct_psd(freqs, b["psd"], ref_f, ref_p, cfg)
+                    sig_c = pp.notch_harmonics(b["signal"], b["fs"], f0, nh, fmax, Q)
+                    row = _metrics_row(b["rec"], freqs, psd_c, sig_c, b["fs"], cfg)
+                    row["ruido_contaminado"] = True; row["ruido_corregido"] = True
+                    psd3[rid] = psd_c
+                else:
+                    row = dict(rows1[rid]); row["ruido_corregido"] = False
+                    psd3[rid] = b["psd"]
+                rows3.append(row)
+            df3 = pd.DataFrame(rows3)
+            n = emit_analysis(df3, psd3, freqs, out_dir / "analisis_3_corregido", cfg)
+            print(f"  [3] corregido → {out_dir/'analisis_3_corregido'} ({n} sig.)")
     return 0
+
+
+def _load_noise_reference(cfg):
+    """Carga la referencia de ruido: del CSV precalculado si existe, o la calcula
+    a partir de la carpeta de ruido (promedio de todos los archivos)."""
+    ncfg = cfg.get("noise", {}); rcfg = ncfg.get("ruido", {})
+    csv = rcfg.get("reference_csv")
+    if csv and Path(csv).exists():
+        d = pd.read_csv(csv, comment="#")
+        return d["freq_hz"].values, d["psd_medio"].values
+    ruido_dir = rcfg.get("dir")
+    if not ruido_dir or not Path(ruido_dir).exists():
+        return None, None
+    # cataloga los .mat/.csv de la carpeta de ruido como "recordings" mínimos
+    recs = []
+    for fp in sorted(Path(ruido_dir).rglob("*")):
+        if fp.suffix.lower() in io._EXT2FMT:
+            recs.append(io.Recording(file_path=fp, group="ruido", animal_id=fp.stem))
+    return noise.build_noise_reference(recs, cfg, io.load_signal, pp.full_pipeline)
 
 
 def cmd_demo(args):

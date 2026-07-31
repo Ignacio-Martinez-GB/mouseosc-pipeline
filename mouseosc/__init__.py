@@ -9,6 +9,7 @@ spectral      PSD de Welch + separación 1/f (specparam)
 bands         métricas por banda (potencia abs/rel, RMS, frecuencia mediana...)
 pac           acoplamiento fase-amplitud (Tort MI, Canolty MVL) + comodulograma
 bursts        detección de ráfagas oscilatorias (envolvente de Hilbert)
+noise         ruido eléctrico: detección de contaminación, notch, resta espectral
 stats         comparaciones de grupos con corrección múltiple
 checks        capa de verificación: asserts por etapa + diagnósticos
 report        reporte de salud por registro (semáforos verde/ámbar/rojo)

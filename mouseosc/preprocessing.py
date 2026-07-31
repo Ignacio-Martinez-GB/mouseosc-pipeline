@@ -13,7 +13,26 @@ distorsionar la FASE que luego usa el análisis PAC.
 from __future__ import annotations
 
 import numpy as np
-from scipy.signal import butter, sosfiltfilt, detrend as scipy_detrend
+from scipy.signal import butter, sosfiltfilt, iirnotch, filtfilt, detrend as scipy_detrend
+
+
+def notch_filter(signal, fs, freqs, Q=30.0):
+    """Filtro NOTCH (rechaza banda estrecha) en cada frecuencia de `freqs`.
+    Se usa para suprimir el ruido de línea (60 Hz + armónicos siempre; 10 Hz +
+    armónicos solo en el análisis 3 antes de PAC/bursts). Q alto = muesca angosta."""
+    sig = np.asarray(signal, dtype=float).copy()
+    nyq = fs / 2.0
+    for f0 in freqs:
+        if 0 < f0 < nyq:
+            b, a = iirnotch(f0 / nyq, Q)
+            sig = filtfilt(b, a, sig)     # fase cero
+    return sig
+
+
+def notch_harmonics(signal, fs, fundamental, n, freq_max, Q=30.0):
+    """Notch en fundamental·1..n (por debajo de freq_max)."""
+    freqs = [fundamental * k for k in range(1, n + 1) if fundamental * k < min(freq_max, fs / 2)]
+    return notch_filter(signal, fs, freqs, Q)
 
 
 def _sos_filter(signal, fs, cutoff, btype, order=4):
@@ -51,14 +70,19 @@ def bandpass_filter(signal, fs, lo, hi, order=4):
     return sosfiltfilt(sos, signal)
 
 
-def preprocess(signal, fs, highpass_hz=0.5, lowpass_hz=None, do_detrend=True):
-    """Detrend lineal + paso-alto (+ paso-bajo opcional). No muta la entrada."""
+def preprocess(signal, fs, highpass_hz=0.5, lowpass_hz=None, do_detrend=True,
+               notch_hz=None, notch_n=1, freq_max=1e9, notch_Q=30.0):
+    """Detrend lineal + paso-alto (+ paso-bajo opcional) (+ notch de línea).
+    notch_hz: frecuencia de línea a suprimir SIEMPRE (p. ej. 60 Hz) y sus
+    notch_n armónicos. No muta la entrada."""
     sig = np.asarray(signal, dtype=float).copy()
     if do_detrend:
         sig = scipy_detrend(sig, type="linear")   # quita pendiente + DC
     sig = highpass_filter(sig, fs, highpass_hz)
     if lowpass_hz is not None:
         sig = lowpass_filter(sig, fs, lowpass_hz)
+    if notch_hz:
+        sig = notch_harmonics(sig, fs, notch_hz, notch_n, freq_max, notch_Q)
     return sig
 
 
@@ -88,10 +112,16 @@ def full_pipeline(signal, fs, cfg_pp, epoch_length_s=None):
     Preprocesa de punta a punta y devuelve un dict con todo lo necesario para
     los checks (no solo las épocas limpias): permite saber cuántas se rechazaron.
     """
+    # Notch de línea eléctrica por defecto (60 Hz + armónicos), configurable.
+    nd = cfg_pp.get("notch_default", {}) or {}
     pp = preprocess(signal, fs,
                     highpass_hz=cfg_pp.get("highpass_hz", 0.5),
                     lowpass_hz=cfg_pp.get("lowpass_hz", None),
-                    do_detrend=cfg_pp.get("detrend", True))
+                    do_detrend=cfg_pp.get("detrend", True),
+                    notch_hz=nd.get("hz") if nd.get("enabled", False) else None,
+                    notch_n=nd.get("n_armonicos", 3),
+                    freq_max=cfg_pp.get("lowpass_hz", fs / 2),
+                    notch_Q=nd.get("Q", 30.0))
     if epoch_length_s is None:
         epoch_length_s = cfg_pp.get("epoch_length_s", 2.0)
     epochs = make_epochs(pp, fs, length_s=epoch_length_s,

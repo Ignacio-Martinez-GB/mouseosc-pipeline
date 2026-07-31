@@ -239,7 +239,12 @@ def scan_folder(folder: Path, out_csv: Path, cfg: dict | None = None) -> dict:
     group_from = scan_cfg.get("group_from")            # factor que alimenta 'group'
     id_regex = scan_cfg.get("animal_id_regex")         # patrón opcional para animal_id
 
-    files = [fp for fp in sorted(folder.rglob("*")) if fp.suffix.lower() in _EXT2FMT]
+    # excluir la carpeta de ruido (no son datos experimentales)
+    ruido_dir = ((cfg or {}).get("noise", {}) or {}).get("ruido", {}) or {}
+    ruido_name = Path(ruido_dir.get("dir", "Ruido")).name.casefold()
+    files = [fp for fp in sorted(folder.rglob("*"))
+             if fp.suffix.lower() in _EXT2FMT
+             and ruido_name not in [p.casefold() for p in fp.relative_to(folder).parts]]
     rows, no_rec_all, ambig_all, combos = [], {}, set(), {}
 
     for fp in files:

@@ -6,6 +6,8 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+pytest-cache-files-*/
+*.egg-info/
 .DS_Store
 
 # salidas generadas (reproducibles desde los datos + config)
@@ -27,6 +29,3 @@ manifest_*.csv
 
 # guía local de git (no forma parte del paquete)
 GIT_Y_GITHUB.md
-
-pytest-cache-files-*/
-*.egg-info/

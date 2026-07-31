@@ -228,6 +228,39 @@ reporta el **conteo por combinación** y los **segmentos no reconocidos**
 (posibles typos o factores que faltan en el diccionario). Sirve para árboles con
 profundidades y órdenes distintos: solo cambias el diccionario, no el código.
 
+## Rango global de análisis
+
+`analysis_band: [0.4, 160]` en el config **recorta todo el proyecto** a esa
+ventana de frecuencia (PSD, bandas, specparam, potencia relativa, PAC y detección
+de ruido) — en los 3 tipos de análisis y todas las comparaciones. Las bandas se
+acotan **solo en los extremos**: una banda interior no cambia, una que cruza el
+límite se recorta, y una totalmente fuera (p. ej. `mua` 300–500 Hz) se elimina.
+Pon `null` para no limitar. El valor recomendado sale del análisis de
+separabilidad señal/ruido (la señal se separa del ruido hasta ~160–170 Hz).
+
+## Ruido eléctrico (esquema de 3 análisis)
+
+El ruido de **60 Hz** (línea eléctrica) se suprime **siempre** con un notch
+(`preprocessing.notch_default`). Para el ruido de **10 Hz + armónicos** hay un
+esquema aparte que activas con `noise.enabled: true` y eliges qué análisis correr
+en `noise.analyses`:
+
+- **[1] normal** — todos los archivos tal cual.
+- **[2] sin ruido** — se excluyen los archivos detectados como contaminados.
+- **[3] corregido** — a los contaminados se les **resta el espectro promedio del
+  ruido** (de `noise.ruido.dir`) en los armónicos, y se les aplica un **notch** en
+  10 Hz para PAC/bursts; los no contaminados quedan intactos.
+
+Cada análisis sale en su carpeta: `resultados/analisis_1_normal/`,
+`analisis_2_sin_ruido/`, `analisis_3_corregido/`, más `deteccion_ruido/` con la
+tabla de qué archivo se marcó contaminado y por qué (SNR y persistencia por
+armónico). La detección usa prominencia del pico + persistencia temporal (el
+ruido de línea es un pico angosto, en peine y estacionario).
+
+La referencia de ruido se toma del CSV `noise.ruido.reference_csv` si existe
+(pre-calculado, versionable), o se computa promediando los archivos de
+`noise.ruido.dir`.
+
 ## Recetas
 
 **Correr con archivos `.mat`** (señal en una variable):

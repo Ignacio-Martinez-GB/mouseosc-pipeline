@@ -17,6 +17,16 @@
 project:
   name: "raton_generico"        # etiqueta que aparece en salidas y reportes
   seed: 1234                    # semilla aleatoria fija → resultados reproducibles
+
+# -----------------------------------------------------------------------------
+# RANGO GLOBAL DE ANÁLISIS — recorta TODO el proyecto a esta ventana de frecuencia.
+# -----------------------------------------------------------------------------
+# Se aplica a PSD, bandas, specparam, potencia relativa, PAC y detección de ruido.
+# Las bandas se acotan SOLO en los extremos: las interiores no cambian, una que
+# cruza el límite se recorta, y una totalmente fuera (p. ej. mua 300–500) se
+# elimina. Pon null para no limitar.
+# Recomendado a partir del análisis de separabilidad señal/ruido: [0.4, 160].
+analysis_band: [0.4, 160.0]
   # ↑ cambiar la semilla cambia SOLO procesos aleatorios (p. ej. surrogates de
   #   PAC). No afecta Welch ni potencia por banda, que son deterministas.
 
@@ -108,6 +118,14 @@ preprocessing:
                              # N×SD de amplitud. ↓ 5 = estricto; ↑ 12 = permisivo.
                              # El reporte avisa si se rechaza >30 % de épocas.
 
+  # NOTCH de línea eléctrica aplicado SIEMPRE (en los 3 análisis). Por defecto
+  # 60 Hz + armónicos (México/EU-Norte). En Europa cambia hz a 50.
+  notch_default:
+    enabled: true
+    hz: 60.0
+    n_armonicos: 3           # 60, 120, 180 Hz
+    Q: 30                    # factor de calidad (↑ = muesca más angosta)
+
 # -----------------------------------------------------------------------------
 # ESPECTRO — PSD de Welch y separación 1/f (specparam / FOOOF).
 # -----------------------------------------------------------------------------
@@ -178,6 +196,35 @@ pac:
     amp_step: 10.0
 
 # -----------------------------------------------------------------------------
+# RUIDO ELÉCTRICO — esquema de 3 análisis para el ruido de 10 Hz + armónicos.
+# -----------------------------------------------------------------------------
+# (El ruido de 60 Hz se suprime aparte, siempre, en preprocessing.notch_default.)
+# Cuando enabled=true, las salidas se organizan en carpetas analisis_1/2/3.
+noise:
+  enabled: false            # actívalo para el esquema de detección/corrección de 10 Hz
+  analyses: [1, 2, 3]       # cuáles correr: [1]=normal, [2]=sin ruido, [3]=corregido.
+                            #   Ej.: [1, 3] corre solo normal y corregido.
+  metodo_correccion: "interpolacion"   # método del Análisis 3 (corregido):
+                            #   "interpolacion" = reemplaza los armónicos por el fondo
+                            #        interpolado (elimina el pico; no usa archivos de ruido).
+                            #   "escalada"      = escala la forma del ruido al exceso del
+                            #        pico y lo resta hasta la base.
+                            #   "literal"       = resta el promedio del ruido tal cual
+                            #        (baja el pico solo parcialmente).
+  fundamental_hz: 10.0      # frecuencia del ruido a tratar (y sus armónicos).
+  n_armonicos: 6            # 10, 20, 30, 40, 50, 60 Hz (los < freq_max).
+  freq_max: 200.0           # tope para buscar armónicos.
+  ancho_hz: 0.5             # media-ventana alrededor de cada armónico (detección y resta).
+  deteccion:
+    snr_umbral: 3.0         # veces sobre el fondo local para contar un armónico como pico.
+    min_armonicos: 2        # nº de armónicos por encima para marcar el archivo contaminado.
+    persistencia_temporal: 0.5   # fracción del tiempo con la línea presente (ruido = estacionario).
+  notch_Q: 30               # Q del notch de 10 Hz que se aplica a PAC/bursts en el análisis 3.
+  ruido:
+    dir: "Datos/Ruido"      # carpeta con archivos SOLO de ruido (se excluye del análisis).
+    reference_csv: "ruido_referencia.csv"   # si existe, se usa; si no, se calcula del dir.
+
+# -----------------------------------------------------------------------------
 # BURSTS — detección de ráfagas oscilatorias (envolvente de Hilbert).
 # -----------------------------------------------------------------------------
 bursts:
@@ -222,9 +269,10 @@ plotting:
   palette:
     control: "#0072B2"    # azul
     tratamiento: "#D55E00"  # naranja
-    pups: "#D55E00"
-    # hembra: "#CC79A7"
-    # macho: "#009E73"
+    pups: "#D55E00"       # naranja (sinónimo de obeso)
+    obeso: "#D55E00"      # naranja
+    hembra: "#CC79A7"     # rosa
+    macho: "#009E73"      # verde
 
 # -----------------------------------------------------------------------------
 # SEGMENTOS DE ANÁLISIS

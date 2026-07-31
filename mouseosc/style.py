@@ -44,15 +44,22 @@ def apply_style():
 
 def color_map(levels, cfg):
     """Devuelve {nivel: color}. Usa config.plotting.palette si define el nivel;
-    si no, asigna colores de la paleta por defecto de forma estable (ordenada)."""
+    a los demás les asigna colores de la paleta por defecto SIN repetir los que
+    ya usó la paleta (evita que dos grupos salgan del mismo color)."""
     palette = (cfg.get("plotting", {}) or {}).get("palette", {}) or {}
-    out, k = {}, 0
+    out, used = {}, set()
+    # 1) niveles con color definido en el config
     for lv in levels:
         if lv in palette:
             out[lv] = palette[lv]
-        else:
-            out[lv] = _DEFAULT_CYCLE[k % len(_DEFAULT_CYCLE)]
-            k += 1
+            used.add(str(palette[lv]).lower())
+    # 2) el resto: siguiente color del ciclo que NO esté ya usado
+    for lv in levels:
+        if lv not in out:
+            col = next((c for c in _DEFAULT_CYCLE if c.lower() not in used), None)
+            col = col or _DEFAULT_CYCLE[len(out) % len(_DEFAULT_CYCLE)]
+            out[lv] = col
+            used.add(col.lower())
     return out
 
 
