@@ -1,0 +1,258 @@
+# CONFIG generado para 'PRUEBA COMPLETA 1' (CONTROL vs Obesos, Analisis Ale)
+# Análisis de ruido 1/2/3, banda 0.4-160 Hz, specparam+PAC+bursts, comparaciones dieta/sexo.
+project:
+  name: prueba_completa_1
+  seed: 1234
+analysis_band:
+- 0.4
+- 160.0
+dataset:
+  manifest: manifest_prueba1.csv
+  root: /
+  format: mat
+  scan:
+    group_from: dieta
+    factores:
+      dieta:
+        control:
+        - CONTROL
+        - Control
+        - DIETA CONTROL
+        obeso:
+        - PUPS
+        - OBESO
+        - Obesos
+        - obeso
+        - DIETA PUPS
+      condicion:
+        foto:
+        - FOTO
+        - Foto
+        meso:
+        - MESO
+        - Meso
+      sexo:
+        hembra:
+        - HEMBRAS
+        - Hembras
+        macho:
+        - MACHOS
+        - Machos
+      autor:
+        ale:
+        - ale
+        wendy:
+        - wendy
+      cirugia:
+        sham:
+        - SHAM
+        - SAHM
+        transplante:
+        - TRANSPLANTE
+        - TRANSPLNTE
+      dia:
+        d9:
+        - 9 DIAS
+        d14:
+        - 14 DIAS
+        - REGISTRO 14
+        d28:
+        - 28 DIAS
+  mat:
+    channel: someData2
+  csv:
+    time_col: 0
+    signal_col: 1
+    delimiter: ','
+    skiprows: 0
+  abf:
+    channel: 0
+  nwb:
+    series: ElectricalSeries
+preprocessing:
+  fs: 2000
+  fs_tolerance: 0.02
+  detrend: true
+  highpass_hz: 0.5
+  lowpass_hz: 500.0
+  epoch_length_s: 2.0
+  epoch_overlap: 0.5
+  artifact_threshold_sd: 8
+  notch_default:
+    enabled: true
+    hz: 60.0
+    n_armonicos: 3
+    Q: 30
+spectral:
+  welch:
+    overlap: 0.5
+    freq_min: 0.5
+    freq_max: 500.0
+  windows:
+  - window_s: 2.0
+    enabled: true
+  - window_s: 4.0
+    enabled: false
+  - window_s: 10.0
+    enabled: false
+  primary_window_s: 2.0
+  specparam:
+    enabled: true
+    freq_range:
+    - 1.0
+    - 300.0
+    peak_width_limits:
+    - 0.5
+    - 8.0
+    max_n_peaks: 6
+    min_peak_height: 0.05
+    aperiodic_mode: fixed
+bands:
+  slow:
+  - 0.5
+  - 2.0
+  low_osc:
+  - 2.0
+  - 5.0
+  mid_osc:
+  - 5.0
+  - 12.0
+  beta:
+  - 12.0
+  - 30.0
+  gamma_lo:
+  - 30.0
+  - 60.0
+  gamma_hi:
+  - 60.0
+  - 160.0
+  mua:
+  - 300.0
+  - 500.0
+relative_power:
+  reference_range:
+  - 0.5
+  - 160.0
+contamination_zones:
+- name: cardiaco
+  range:
+  - 5.0
+  - 12.0
+  note: latido (ECG) en ratón in vivo
+- name: linea_60Hz
+  range:
+  - 58.0
+  - 62.0
+  note: ruido de red eléctrica (50 Hz en EU)
+pac:
+  enabled: true
+  n_phase_bins: 18
+  n_surrogates: 200
+  pairs:
+  - name: theta-gamma
+    phase:
+    - 5.0
+    - 12.0
+    amp:
+    - 30.0
+    - 60.0
+  - name: slow-gamma
+    phase:
+    - 0.5
+    - 2.0
+    amp:
+    - 30.0
+    - 60.0
+  comodulogram:
+    enabled: false
+    phase_range:
+    - 1.0
+    - 14.0
+    phase_step: 1.0
+    amp_range:
+    - 20.0
+    - 120.0
+    amp_step: 10.0
+noise:
+  enabled: true
+  analyses:
+  - 1
+  - 2
+  - 3
+  metodo_correccion: interpolacion
+  fundamental_hz: 10.0
+  n_armonicos: 6
+  freq_max: 200.0
+  ancho_hz: 0.5
+  deteccion:
+    snr_umbral: 3.0
+    min_armonicos: 2
+    persistencia_temporal: 0.5
+  notch_Q: 30
+  ruido:
+    dir: /Users/ignaciomgb/Library/Mobile Documents/com~apple~CloudDocs/Antigravity/AnalisisAleSteph/Analisis
+      Ale/Datos/Ruido
+    reference_csv: ruido_referencia.csv
+bursts:
+  enabled: true
+  threshold_sd: 2.0
+  min_duration_ms: 50.0
+  merge_gap_ms: 25.0
+  detection_bands:
+    gamma_lo:
+    - 30.0
+    - 60.0
+    gamma_hi:
+    - 60.0
+    - 160.0
+statistics:
+  group_col: dieta
+  paired: false
+  alpha: 0.05
+  correction: holm
+  min_n_per_group: 3
+groups:
+  expected:
+  - control
+  - obeso
+plotting:
+  psd_scale: loglog
+  notch_hz:
+  - 57
+  - 63
+  palette:
+    control: '#0072B2'
+    tratamiento: '#D55E00'
+    pups: '#D55E00'
+    obeso: '#D55E00'
+    hembra: '#CC79A7'
+    macho: '#009E73'
+descriptivo:
+  enabled: true
+  by: dieta
+comparisons:
+- name: dieta
+  by: dieta
+  within: null
+  enabled: true
+- name: dieta_por_sexo
+  by: dieta
+  within: sexo
+  enabled: true
+- name: sexo
+  by: sexo
+  within: null
+  enabled: true
+- name: sexo_por_dieta
+  by: sexo
+  within: dieta
+  enabled: true
+output:
+  dir: PRUEBA_COMPLETA_1
+  save_figures: true
+  dpi: 150
+checks:
+  stop_on_error: true
+  max_rejected_epochs_frac: 0.3
+  min_specparam_r2: 0.9
+  energy_conservation_tol: 0.05

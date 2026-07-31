@@ -13,6 +13,7 @@ pytest-cache-files-*/
 # salidas generadas (reproducibles desde los datos + config)
 resultados/
 resultados_test/
+PRUEBA_COMPLETA_*/
 config_test.yaml
 examples/datos_sinteticos/
 
