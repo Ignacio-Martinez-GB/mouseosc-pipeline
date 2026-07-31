@@ -1,3 +1,25 @@
+Metadata-Version: 2.4
+Name: mouseosc
+Version: 0.1.0
+Summary: Pipeline reproducible para análisis de actividad oscilatoria (LFP/ERG) en ratón
+Requires-Python: <3.13,>=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: numpy==1.26.4
+Requires-Dist: scipy==1.13.1
+Requires-Dist: pandas==2.2.2
+Requires-Dist: matplotlib==3.9.0
+Requires-Dist: pyyaml==6.0.1
+Requires-Dist: statsmodels==0.14.2
+Requires-Dist: tqdm==4.66.4
+Provides-Extra: specparam
+Requires-Dist: specparam>=1.0; extra == "specparam"
+Provides-Extra: abf
+Requires-Dist: pyabf==2.3.8; extra == "abf"
+Provides-Extra: nwb
+Requires-Dist: pynwb==2.8.1; extra == "nwb"
+Provides-Extra: test
+Requires-Dist: pytest==8.2.2; extra == "test"
+
 # mouseosc — pipeline de actividad oscilatoria en ratón
 
 Pipeline **reproducible, configurable y verificable** para analizar oscilaciones

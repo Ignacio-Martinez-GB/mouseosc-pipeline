@@ -58,9 +58,29 @@ def load_config(path):
 # ---------------------------------------------------------------------------
 def cmd_scan_folder(args):
     out = Path(args.out)
-    df = io.scan_folder(Path(args.folder), out)
-    print(f"Plantilla de manifiesto escrita en {out} con {len(df)} archivos.")
-    print("Rellena las columnas 'group' y 'animal_id' antes de correr el pipeline.")
+    cfg = load_config(args.config) if getattr(args, "config", None) and Path(args.config).exists() else {}
+    rep = io.scan_folder(Path(args.folder), out, cfg)
+    print(f"\nManifiesto escrito en {out}  ({rep['n']} archivos, modo: {rep['modo']}).")
+    print(f"Columnas: {rep['columnas']}")
+    if rep["modo"] == "plantilla":
+        print("\n⚠ No definiste dataset.scan.factores en el config, así que se")
+        print("  escribieron columnas genéricas (nivel_1, nivel_2…). Revisa los")
+        print("  valores y define el diccionario de factores para clasificar solo.")
+        return
+    if rep["conteos"]:
+        print("\nConteo por combinación de factores:")
+        for combo, n in sorted(rep["conteos"].items()):
+            print(f"  {combo}: {n}")
+    if rep["no_reconocidos"]:
+        print("\n⚠ Segmentos de carpeta NO reconocidos (posibles typos o factores"
+              " faltantes en el diccionario):")
+        for seg, n in sorted(rep["no_reconocidos"].items(), key=lambda kv: -kv[1]):
+            print(f"  '{seg}'  ({n} archivos)")
+    if rep["ambiguos"]:
+        print("\nℹ Carpetas que aportan a MÁS de un factor (normal si una carpeta"
+              " codifica dos cosas, p. ej. '9 DIAS TRANSPLANTE' → día + cirugía):")
+        print(f"  {rep['ambiguos']}")
+    print("\nRevisa el manifiesto; si algo no cuadra, ajusta el diccionario y vuelve a escanear.")
 
 
 def cmd_inspect(args):
@@ -282,7 +302,8 @@ def main():
     # run.py) NO falla; mostramos una guía clara en su lugar.
     sub = ap.add_subparsers(dest="cmd", required=False)
 
-    p = sub.add_parser("scan-folder"); p.add_argument("folder"); p.add_argument("--out", default="manifest.csv")
+    p = sub.add_parser("scan-folder"); p.add_argument("folder")
+    p.add_argument("--out", default="manifest.csv"); p.add_argument("--config", default="config.yaml")
     p = sub.add_parser("inspect"); p.add_argument("file")
     p = sub.add_parser("validate"); p.add_argument("--config", default="config.yaml")
     p = sub.add_parser("run"); p.add_argument("--config", default="config.yaml")

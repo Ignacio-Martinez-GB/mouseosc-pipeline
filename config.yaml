@@ -31,6 +31,39 @@ dataset:
   manifest: "manifest.csv"      # CSV con: file_path, group, animal_id, [extra...]
   root: "Datos"                 # carpeta raíz (las rutas del manifiesto son relativas a ésta)
   format: "auto"                # auto | mat | csv | abf | nwb
+
+  # ---------------------------------------------------------------------------
+  # ESCANEO AUTOMÁTICO DEL ÁRBOL (modo "scan" / scan-folder)
+  # ---------------------------------------------------------------------------
+  # El escáner clasifica cada archivo por las PALABRAS de su ruta, sin importar
+  # en qué NIVEL o en qué ORDEN estén las carpetas (así sirve para árboles con
+  # profundidades y órdenes distintos). Cada factor lista sus sinónimos: si una
+  # palabra aparece en la ruta, se asigna ese valor canónico.
+  # Edita este diccionario según cómo nombres TUS carpetas.
+  scan:
+    group_from: dieta           # qué factor alimenta la columna 'group' (comparación por defecto)
+    # animal_id_regex: "([A-Z]+\\d+[A-Z]\\d+O[DI])"   # opcional: extraer sujeto+ojo del nombre
+    factores:
+      dieta:
+        control: [CONTROL, Control, "DIETA CONTROL"]
+        obeso:   [PUPS, OBESO, Obesos, obeso, "DIETA PUPS"]
+      condicion:
+        foto: [FOTO, Foto]
+        meso: [MESO, Meso]
+      sexo:
+        hembra: [HEMBRAS, Hembras]
+        macho:  [MACHOS, Machos]
+      # --- Factores OPCIONALES (quedan vacíos donde no aplican) ---
+      autor:                    # solo en datasets que separan por autor
+        ale:   [ale]
+        wendy: [wendy]
+      cirugia:                  # solo en la rama post-cirugía
+        sham:        [SHAM, SAHM]           # incluye el typo real
+        transplante: [TRANSPLANTE, TRANSPLNTE]
+      dia:
+        d9:  ["9 DIAS"]
+        d14: ["14 DIAS", "REGISTRO 14"]
+        d28: ["28 DIAS"]
   # ↑ "auto" decide por la extensión del archivo. Fíjalo si tus archivos
   #   tienen extensión rara.
 

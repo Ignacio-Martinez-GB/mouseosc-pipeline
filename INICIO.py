@@ -60,8 +60,10 @@ def main():
 
     if MODO == "scan":
         print(f"Escaneando '{CARPETA_DE_DATOS}' → manifest.csv ...")
-        _run.cmd_scan_folder(_Args(folder=CARPETA_DE_DATOS, out="manifest.csv"))
-        print("\nSiguiente paso: abre manifest.csv y rellena la columna 'group'.")
+        _run.cmd_scan_folder(_Args(folder=CARPETA_DE_DATOS, out="manifest.csv",
+                                   config=str(PROJ / CONFIG)))
+        print("\nSiguiente paso: revisa manifest.csv (las columnas de factores ya")
+        print("vienen rellenas si definiste dataset.scan.factores en el config).")
         print("Luego cambia arriba MODO = \"validate\" y vuelve a darle a ▶.")
         return 0
 
