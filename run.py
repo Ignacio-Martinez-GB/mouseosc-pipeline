@@ -154,11 +154,37 @@ def _metrics_row(rec, freqs, psd, signal, fs, cfg):
 
 
 def emit_analysis(df, psd_store, freqs, out_dir, cfg):
-    """Genera el descriptivo + comparaciones por pares para UN conjunto de datos.
-    Devuelve el nº total de comparaciones significativas."""
+    """Genera el descriptivo + comparaciones por pares + factorial para UN
+    conjunto de datos. Devuelve el nº total de comparaciones significativas."""
     out_dir = Path(out_dir); out_dir.mkdir(parents=True, exist_ok=True)
     export._save_csv(df, out_dir / "metrics_all.csv", cfg)
     total_sig = 0
+
+    # ---- FACTORIAL: efectos principales + interacciones (opcional) ----
+    fcfg = cfg.get("statistics", {}).get("factorial", {}) or {}
+    if fcfg.get("enabled", False):
+        factores = [f for f in fcfg.get("factores", []) if f in df.columns]
+        if len(factores) >= 2:
+            mcols = [c for c in df.columns
+                     if c.endswith(("_abs", "_rel", "_rms", "_mi", "_mvl"))
+                     or c in ("aperiodic_exponent", "aperiodic_offset", "median_freq",
+                              "spectral_entropy", "spectral_edge_95")
+                     or c.startswith("burst_")]
+            mcols = [c for c in mcols if c != "sum_bands_abs"]
+            fdf = stats.factorial_all(df, mcols, factores, cfg)
+            if len(fdf):
+                export._save_csv(fdf, out_dir / "factorial" / "efectos_e_interacciones.csv", cfg)
+                total_sig += int(fdf["significant"].sum())
+                # POST-HOC de celdas (por defecto solo donde la interacción es signif.)
+                if fcfg.get("posthoc_celdas", True):
+                    ph = stats.factorial_posthoc_all(
+                        df, mcols, factores, cfg,
+                        solo_si_interaccion=fcfg.get("posthoc_solo_si_interaccion", True),
+                        factorial_df=fdf)
+                    if len(ph):
+                        export._save_csv(ph, out_dir / "factorial" / "posthoc_celdas.csv", cfg)
+        elif fcfg.get("factores"):
+            print(f"  AVISO: factorial omitido (faltan columnas: {fcfg.get('factores')}).")
     desc = cfg.get("descriptivo", {})
     if desc.get("enabled", True):
         by = desc.get("by", cfg["statistics"]["group_col"])

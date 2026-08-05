@@ -96,39 +96,40 @@ Sí. Es Python puro y multiplataforma. Para reproducir números **idénticos**,
 reciba el proyecto corre `bash setup.sh` y en un minuto tiene el entorno y los
 tests en verde. Prueba la instalación sin tus datos con `python run.py demo`.
 
-## Uso en 4 pasos
+## Un solo archivo de parámetros: `config.yaml`
 
-```bash
-# 1. Generar una plantilla de manifiesto a partir de tu carpeta de datos
-python run.py scan-folder Datos/        # crea manifest.csv (rellena group/animal_id)
-
-# 2. (si es .mat) ver qué variable tiene la señal
-python run.py inspect Datos/raton01.mat
-
-# 3. Validar la salud de los datos SIN producir resultados
-python run.py validate                  # → resultados/report.html
-
-# 4. Corrida completa
-python run.py run                        # métricas + stats + figuras + reporte
-```
-
-## ¿Qué parámetro toco para...?
+**Todo el análisis se controla desde `config.yaml`.** No hay más archivos de
+edición: el código no contiene valores fijos y cada parámetro lleva su comentario
+(qué es, qué pasa si lo subes/bajas, valor típico para ratón).
 
 | Quiero... | En `config.yaml` |
 |---|---|
+| limitar el rango de frecuencias de TODO el análisis | `analysis_band` |
+| apuntar a mis datos / elegir el canal del `.mat` | `dataset.root`, `dataset.mat.channel` |
+| que el escaneo reconozca mis carpetas | `dataset.scan.factores` (sinónimos por factor) |
 | cambiar la frecuencia de muestreo | `preprocessing.fs` |
+| quitar la línea eléctrica (50/60 Hz) | `preprocessing.notch_default` |
 | ser más/menos estricto con artefactos | `preprocessing.artifact_threshold_sd` |
-| más resolución en frecuencias bajas | activar ventana de 10 s en `spectral.windows` |
 | redefinir las bandas | `bands` |
-| elegir qué comparar entre grupos | `statistics.group_col`, `groups.expected` |
+| activar/desactivar specparam, PAC o bursts | `spectral.specparam.enabled`, `pac.enabled`, `bursts.enabled` |
+| tratar el ruido de 10 Hz (3 análisis) | `noise.enabled`, `noise.analyses`, `noise.metodo_correccion` |
+| elegir prueba estadística y post-hoc | `statistics.metodo`, `statistics.posthoc` |
+| efectos principales e interacciones | `statistics.factorial` |
+| qué comparaciones generar | `descriptivo`, `comparisons` (`by` / `within`) |
+| colores por grupo y escala del PSD | `plotting.palette`, `plotting.psd_scale` |
 | que NO se detenga ante un error | `checks.stop_on_error: false` |
+
+> Lo único que **no** está en el config es a qué grupo pertenece cada archivo:
+> eso vive en `manifest.csv`, que genera el modo `scan`. El config define *cómo*
+> analizar; el manifiesto, *qué* es cada registro.
 
 ## Verificación (checkpoints)
 
-- **Tests de verdad conocida** (`tests/`): un tono de 40 Hz debe dar el pico del
-  PSD en 40 Hz; una señal con PAC sintético debe dar MI alto y ~0 en ruido; la
-  estadística debe detectar una diferencia real y no inventarla bajo el nulo.
-  Corre `pytest -v`.
+- **Tests de verdad conocida** (`tests/`, 18 pruebas): un tono de 40 Hz da el pico
+  del PSD en 40 Hz; un PAC sintético da MI alto y ~0 en ruido; el detector de
+  ruido marca una línea de 10 Hz y no marca ruido blanco; la corrección aplana el
+  pico; la selección adaptativa elige t con datos normales y Mann-Whitney con
+  datos sesgados; el factorial detecta una interacción inyectada. Corre `pytest -v`.
 - **Checks por registro** (`mouseosc/checks.py`): fs coherente con los datos,
   sin NaN/saturación, % de épocas rechazadas, R² del ajuste 1/f, y
   **conservación de energía** (las bandas suman ≈ la potencia total).
@@ -138,22 +139,32 @@ python run.py run                        # métricas + stats + figuras + reporte
 ## Estructura
 
 ```
-PipelineRatonGenerico/
-├── config.yaml            ← único punto de control (todo comentado)
+mouseosc-pipeline/
+├── config.yaml            ← ÚNICO archivo de parámetros (todo comentado)
+├── INICIO.py              ← punto de entrada sin terminal (editar MODO y ▶ Run)
+├── run.py                 ← CLI: scan-folder | inspect | validate | run | demo
 ├── pyproject.toml         ← entorno con versiones fijadas
-├── run.py                 ← CLI: scan-folder | inspect | validate | run
+├── requirements.lock      ← versiones exactas (reproducibilidad)
+├── setup.sh / setup.bat   ← instalación de un comando
+├── ruido_referencia.csv   ← PSD promedio del ruido (para el Análisis 3)
+├── manifest_ejemplo.csv   ← formato esperado del manifiesto (con sex/condition)
+├── PRUEBA_COMPLETA_1.md   ← receta para una corrida completa
 ├── mouseosc/              ← paquete
-│   ├── io.py              carga genérica + manifiesto
-│   ├── preprocessing.py   detrend, filtros fase-cero, épocas, artefactos
-│   ├── spectral.py        Welch + specparam
-│   ├── bands.py           métricas por banda + globales
+│   ├── io.py              carga genérica + manifiesto + escaneo del árbol
+│   ├── preprocessing.py   detrend, filtros fase-cero, notch, épocas, artefactos
+│   ├── spectral.py        Welch + specparam (1/f)
+│   ├── bands.py           métricas por banda + rango global de análisis
 │   ├── pac.py             MI (Tort) + MVL (Canolty) + comodulograma
-│   ├── stats.py           comparaciones de grupos + corrección múltiple
-│   ├── checks.py          capa de verificación
+│   ├── bursts.py          detección de ráfagas (envolvente de Hilbert)
+│   ├── noise.py           detección de ruido, resta/interpolación, notch
+│   ├── stats.py           supuestos, pruebas adaptativas, post-hoc, factorial
+│   ├── checks.py          capa de verificación (semáforos)
 │   ├── report.py          reporte de salud HTML
-│   ├── provenance.py      hash de config + versiones
-│   └── viz.py             figuras
-├── tests/test_synthetic.py
+│   ├── export.py          salidas por análisis (figuras, datos, CSV Prism)
+│   ├── style.py           paleta por grupo y estilo de figuras
+│   ├── viz.py             figuras
+│   └── provenance.py      hash de config + versiones
+├── tests/test_synthetic.py           ← 18 tests de verdad conocida
 └── examples/make_synthetic_data.py   ← dataset de demostración
 ```
 
@@ -227,6 +238,44 @@ Al escanear, cada archivo se clasifica por las palabras de su ruta y el
 reporta el **conteo por combinación** y los **segmentos no reconocidos**
 (posibles typos o factores que faltan en el diccionario). Sirve para árboles con
 profundidades y órdenes distintos: solo cambias el diccionario, no el código.
+
+## Estadística: cómo se decide y qué se compara
+
+Todo se controla en `config.yaml → statistics` (cada opción está comentada ahí).
+
+**Cómo se elige la prueba** (`statistics.metodo`):
+
+| modo | qué hace |
+|---|---|
+| `auto` (default) | Comprueba **Shapiro-Wilk** (normalidad por grupo) y **Levene** (varianzas). Normal + varianzas iguales → **t de Student / ANOVA**; normal + varianzas desiguales → **t de Welch**; no normal → **Mann-Whitney / Kruskal-Wallis** |
+| `parametrico` | Fuerza t/ANOVA (Welch si las varianzas difieren) |
+| `no_parametrico` | Fuerza Mann-Whitney / Kruskal-Wallis (conservador) |
+
+En los tres casos el CSV reporta **qué prueba se usó** y los **p de Shapiro y
+Levene**, así que la decisión queda auditable.
+
+**Qué comparaciones se hacen** (las tres conviven):
+
+1. **Omnibus** por cada bloque de `comparisons` (con 2 grupos, es la prueba directa).
+2. **Pares (post-hoc)**: todas las parejas con corrección múltiple (`holm` por
+   defecto) → `p_corrected`; salen en `estadistica/stats_comparisons.csv` y como
+   barras de significancia en las figuras.
+3. **Factorial** (`statistics.factorial`): ANOVA de N vías con **efectos
+   principales E INTERACCIONES** (p. ej. `dieta × sexo`). Si los residuos no son
+   normales usa **ART** (Aligned Rank Transform), la variante no paramétrica que
+   sí permite probar interacciones. Salida: `factorial/efectos_e_interacciones.csv`.
+4. **Post-hoc del factorial**: cuando una interacción sale significativa, compara
+   las **celdas del cruce** (`control·hembra vs obeso·macho`, …) con corrección
+   múltiple → `factorial/posthoc_celdas.csv`. Por defecto solo se hace en las
+   métricas con interacción significativa (`posthoc_solo_si_interaccion: true`).
+
+**Post-hoc con ≥3 grupos** (`statistics.posthoc`): `auto` = pruebas por pares
+(t o Mann-Whitney según supuestos) con corrección `holm`; `tukey` = **Tukey HSD**,
+el post-hoc clásico de ANOVA (controla el error familiar por sí mismo).
+
+> Nota: la estratificación (`within:` en `comparisons`) repite una comparación
+> *dentro* de cada nivel — es complementaria al factorial, no equivalente: el
+> factorial es el que estima efectos principales e interacción en un solo modelo.
 
 ## Rango global de análisis
 

@@ -106,6 +106,87 @@ def test_bursts_cuenta_rafagas_insertadas():
     assert 2 <= len(found) <= 3, f"detectó {len(found)} ráfagas, esperaba ~3"
 
 
+def test_seleccion_adaptativa_de_prueba():
+    """Con datos normales, 'auto' elige una prueba paramétrica (t);
+    con datos claramente no normales, elige Mann-Whitney."""
+    import pandas as pd
+    rng = np.random.default_rng(21)
+    cfg = {"statistics": {"group_col": "g", "metodo": "auto", "alpha": 0.05,
+                          "correction": "holm", "paired": False,
+                          "alpha_supuestos": 0.05, "min_n_per_group": 3}}
+    # normal
+    a = rng.normal(10, 1, 20); b = rng.normal(12, 1, 20)
+    dfn = pd.DataFrame({"x": np.r_[a, b], "g": ["A"] * 20 + ["B"] * 20})
+    r = stats.compare_metric(dfn, "x", cfg)
+    assert "t de" in r.iloc[0]["test"], f"esperaba prueba t, salió {r.iloc[0]['test']}"
+    # claramente no normal (exponencial muy sesgada)
+    a2 = rng.exponential(1, 30); b2 = rng.exponential(3, 30)
+    dfe = pd.DataFrame({"x": np.r_[a2, b2], "g": ["A"] * 30 + ["B"] * 30})
+    r2 = stats.compare_metric(dfe, "x", cfg)
+    assert "Mann-Whitney" in r2.iloc[0]["test"], f"esperaba MW, salió {r2.iloc[0]['test']}"
+    # y reporta los supuestos
+    assert "levene_p" in r.columns and "shapiro_p" in r.columns
+
+
+def test_factorial_detecta_interaccion():
+    """Diseño 2×2 con interacción real: el término de interacción sale significativo."""
+    import pandas as pd
+    rng = np.random.default_rng(22)
+    filas = []
+    for dieta in ("control", "obeso"):
+        for sexo in ("hembra", "macho"):
+            # interacción: el efecto de la dieta solo existe en machos
+            base = 10 + (5 if (dieta == "obeso" and sexo == "macho") else 0)
+            for v in rng.normal(base, 1.0, 12):
+                filas.append({"y": v, "dieta": dieta, "sexo": sexo})
+    df = pd.DataFrame(filas)
+    cfg = {"statistics": {"metodo": "auto", "alpha": 0.05, "alpha_supuestos": 0.05}}
+    res = stats.factorial_analysis(df, "y", ["dieta", "sexo"], cfg)
+    assert len(res) >= 3, "faltan efectos (2 principales + interacción)"
+    inter = res[res["efecto"].str.contains("×")]
+    assert len(inter) == 1 and bool(inter.iloc[0]["significant"]), \
+        "no detectó la interacción dieta × sexo"
+
+
+def test_tukey_posthoc_tres_grupos():
+    """Con 3 grupos y posthoc='tukey', se reportan las 3 parejas con p ajustado
+    y detecta el grupo que difiere."""
+    import pandas as pd
+    rng = np.random.default_rng(23)
+    df = pd.DataFrame({
+        "x": np.r_[rng.normal(10, 1, 15), rng.normal(10.2, 1, 15), rng.normal(15, 1, 15)],
+        "g": ["A"] * 15 + ["B"] * 15 + ["C"] * 15})
+    cfg = {"statistics": {"group_col": "g", "metodo": "parametrico", "alpha": 0.05,
+                          "correction": "holm", "paired": False, "posthoc": "tukey",
+                          "alpha_supuestos": 0.05, "min_n_per_group": 3}}
+    r = stats.compare_metric(df, "x", cfg)
+    tuk = r[r["test"].str.contains("Tukey")]
+    assert len(tuk) == 3, "esperaba 3 parejas de Tukey"
+    sig = tuk[tuk["significant"]]["comparison"].tolist()
+    assert any("C" in s for s in sig), "no detectó el grupo C distinto"
+    assert not any(s == "A vs B" for s in sig), "falso positivo A vs B"
+
+
+def test_posthoc_celdas_factorial():
+    """El post-hoc de celdas compara las combinaciones del cruce (2×2 = 6 pares)."""
+    import pandas as pd
+    rng = np.random.default_rng(24)
+    filas = []
+    for dieta in ("control", "obeso"):
+        for sexo in ("hembra", "macho"):
+            base = 10 + (5 if (dieta == "obeso" and sexo == "macho") else 0)
+            for v in rng.normal(base, 1.0, 10):
+                filas.append({"y": v, "dieta": dieta, "sexo": sexo})
+    df = pd.DataFrame(filas)
+    cfg = {"statistics": {"metodo": "auto", "alpha": 0.05, "correction": "holm",
+                          "alpha_supuestos": 0.05, "posthoc": "auto"}}
+    ph = stats.factorial_posthoc(df, "y", ["dieta", "sexo"], cfg)
+    assert len(ph) == 6, f"esperaba 6 parejas de celdas, salieron {len(ph)}"
+    # la celda obeso·macho debe diferir de las demás
+    sig = ph[ph["significant"]]["comparison"].tolist()
+    assert any("obeso·macho" in s for s in sig), "no detectó la celda distinta"
+
+
 def test_analysis_band_recorta_extremos():
     """El rango global recorta solo los extremos: bandas interiores intactas,
     las que cruzan el límite se recortan, las de fuera se eliminan."""

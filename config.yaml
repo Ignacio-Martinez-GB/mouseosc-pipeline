@@ -15,8 +15,11 @@
 # =============================================================================
 
 project:
-  name: "raton_generico"        # etiqueta que aparece en salidas y reportes
+  name: "analisis_raton"        # etiqueta que aparece en salidas y reportes
   seed: 1234                    # semilla aleatoria fija → resultados reproducibles
+                                # ↑ cambiarla afecta SOLO procesos aleatorios (p. ej.
+                                #   los subrogados de PAC). Welch y la potencia por
+                                #   banda son deterministas y no cambian.
 
 # -----------------------------------------------------------------------------
 # RANGO GLOBAL DE ANÁLISIS — recorta TODO el proyecto a esta ventana de frecuencia.
@@ -27,8 +30,6 @@ project:
 # elimina. Pon null para no limitar.
 # Recomendado a partir del análisis de separabilidad señal/ruido: [0.4, 160].
 analysis_band: [0.4, 160.0]
-  # ↑ cambiar la semilla cambia SOLO procesos aleatorios (p. ej. surrogates de
-  #   PAC). No afecta Welch ni potencia por banda, que son deterministas.
 
 # -----------------------------------------------------------------------------
 # DATASET — de dónde salen los datos y cómo se leen.
@@ -40,7 +41,9 @@ analysis_band: [0.4, 160.0]
 dataset:
   manifest: "manifest.csv"      # CSV con: file_path, group, animal_id, [extra...]
   root: "Datos"                 # carpeta raíz (las rutas del manifiesto son relativas a ésta)
-  format: "auto"                # auto | mat | csv | abf | nwb
+  format: "mat"                 # auto | mat | csv | abf | nwb
+                                # ↑ "auto" decide por la extensión del archivo.
+                                #   Fíjalo si tus archivos tienen extensión rara.
 
   # ---------------------------------------------------------------------------
   # ESCANEO AUTOMÁTICO DEL ÁRBOL (modo "scan" / scan-folder)
@@ -74,8 +77,6 @@ dataset:
         d9:  ["9 DIAS"]
         d14: ["14 DIAS", "REGISTRO 14"]
         d28: ["28 DIAS"]
-  # ↑ "auto" decide por la extensión del archivo. Fíjalo si tus archivos
-  #   tienen extensión rara.
 
   # --- Opciones específicas por formato (solo se usa la del formato activo) ---
   mat:
@@ -201,7 +202,7 @@ pac:
 # (El ruido de 60 Hz se suprime aparte, siempre, en preprocessing.notch_default.)
 # Cuando enabled=true, las salidas se organizan en carpetas analisis_1/2/3.
 noise:
-  enabled: false            # actívalo para el esquema de detección/corrección de 10 Hz
+  enabled: true            # actívalo para el esquema de detección/corrección de 10 Hz
   analyses: [1, 2, 3]       # cuáles correr: [1]=normal, [2]=sin ruido, [3]=corregido.
                             #   Ej.: [1, 3] corre solo normal y corregido.
   metodo_correccion: "interpolacion"   # método del Análisis 3 (corregido):
@@ -228,7 +229,7 @@ noise:
 # BURSTS — detección de ráfagas oscilatorias (envolvente de Hilbert).
 # -----------------------------------------------------------------------------
 bursts:
-  enabled: false          # actívalo para añadir métricas de ráfaga por registro.
+  enabled: true          # actívalo para añadir métricas de ráfaga por registro.
   threshold_sd: 2.0       # umbral = media + N×SD de la envolvente.
                           # ↑ más estricto (menos ráfagas). ↓ más permisivo.
   min_duration_ms: 50.0   # duración mínima para contar una ráfaga.
@@ -241,11 +242,55 @@ bursts:
 # ESTADÍSTICA de grupos.
 # -----------------------------------------------------------------------------
 statistics:
-  group_col: "group"          # columna del manifiesto que define los grupos a comparar.
+  group_col: "dieta"          # columna del manifiesto que define los grupos a comparar.
   paired: false               # ¿medidas repetidas (mismo animal)? true usa pruebas pareadas.
-  alpha: 0.05                 # umbral de significancia.
+  alpha: 0.05                 # umbral de significancia de las comparaciones.
   correction: "holm"          # corrección múltiple: holm | bonferroni | fdr_bh | none.
-  min_n_per_group: 3          # nº mínimo por grupo; debajo, el reporte marca la prueba en ámbar.
+  min_n_per_group: 3          # nº mínimo por grupo; debajo, se marca un aviso.
+
+  # --- CÓMO SE ELIGE LA PRUEBA ------------------------------------------------
+  # "auto"            comprueba los supuestos y decide:
+  #                     Shapiro-Wilk (normalidad por grupo) + Levene (varianzas)
+  #                       normal + varianzas iguales   → t de Student / ANOVA 1 vía
+  #                       normal + varianzas desiguales→ t de Welch  / ANOVA de Welch
+  #                       no normal                    → Mann-Whitney / Kruskal-Wallis
+  # "parametrico"     fuerza t/ANOVA (Welch si las varianzas difieren).
+  # "no_parametrico"  fuerza Mann-Whitney / Kruskal-Wallis (conservador; útil con n
+  #                   pequeño, donde Shapiro tiene poca potencia).
+  # En los 3 casos el CSV reporta la prueba usada y los p de Shapiro y Levene.
+  metodo: "auto"
+  alpha_supuestos: 0.05       # umbral de Shapiro/Levene. ↓ 0.01 = más permisivo con
+                              # la normalidad (rechaza menos → usa más paramétricas).
+
+  # --- QUÉ COMPARACIONES SE HACEN ---------------------------------------------
+  # 1) OMNIBUS: por cada bloque de `comparisons`, ¿difiere algún nivel?
+  #    (con 2 grupos, el omnibus ES la comparación directa).
+  # 2) PARES (post-hoc): todas las parejas, con `correction` aplicada → p_corrected.
+  #    Salen en estadistica/stats_comparisons.csv y como barras en las figuras.
+  # 3) FACTORIAL (abajo): efectos principales E INTERACCIONES en un solo modelo,
+  #    con su propio post-hoc de celdas.
+
+  # POST-HOC de ≥3 grupos:
+  #   "auto"  (default) pruebas por pares (t o Mann-Whitney según supuestos) con
+  #           corrección múltiple `correction` → p_corrected.
+  #   "tukey" Tukey HSD, el post-hoc clásico tras un ANOVA paramétrico (controla
+  #           el error familiar por sí mismo; no aplica corrección extra).
+  #           Solo para diseños NO pareados.
+  posthoc: "auto"
+
+  factorial:
+    enabled: true             # análisis de N vías (p. ej. dieta × sexo).
+    factores: ["dieta", "sexo"]   # columnas del manifiesto a cruzar (mínimo 2).
+                              # Añade "condicion" para un factorial de 3 vías.
+    posthoc_celdas: true      # tras el factorial, comparar las CELDAS del cruce
+                              # (control·hembra vs obeso·macho, …) → factorial/posthoc_celdas.csv
+    posthoc_solo_si_interaccion: true   # hacerlo SOLO en las métricas cuya
+                              # interacción salió significativa (recomendado: evita
+                              # cientos de comparaciones sin sentido). false = todas.
+    # Prueba: si `metodo` es paramétrico (o auto con residuos normales) → ANOVA de
+    # N vías (statsmodels, typ=2). Si no → ART (Aligned Rank Transform), la versión
+    # no paramétrica que SÍ permite probar interacciones (Wobbrock et al. 2011).
+    # Salida: <analisis>/factorial/efectos_e_interacciones.csv
 
 # -----------------------------------------------------------------------------
 # GRUPOS — define el diseño experimental para las comparaciones.
@@ -280,7 +325,7 @@ plotting:
 # DESCRIPTIVO: una carpeta con TODOS los grupos juntos (PSD global, etc.).
 descriptivo:
   enabled: true
-  by: "group"             # columna del manifiesto que define los grupos.
+  by: "dieta"             # columna del manifiesto que define los grupos.
 
 # COMPARACIONES: cada bloque genera su propia carpeta con estadística de DOS
 # grupos para TODAS las combinaciones por pares de los niveles de `by`.
@@ -289,21 +334,25 @@ descriptivo:
 #             de esta columna (p. ej. comparar grupos por separado en hembras y machos).
 #   enabled : activa/desactiva este bloque sin borrarlo.
 comparisons:
-  - name: "grupo"            # control vs pups (todas las parejas de 'group')
-    by: "group"
+  - name: "dieta"              # control vs obeso (todas las parejas de 'dieta')
+    by: "dieta"
     within: null
     enabled: true
-  - name: "grupo_por_sexo"   # control vs pups, por separado en cada sexo
-    by: "group"
-    within: "sex"            # requiere columna 'sex' en el manifiesto
+  - name: "dieta_por_sexo"     # control vs obeso, por separado en cada sexo
+    by: "dieta"
+    within: "sexo"
     enabled: true
-  - name: "sexo"             # hembra vs macho (todas las parejas de 'sex')
-    by: "sex"
+  - name: "sexo"               # hembra vs macho
+    by: "sexo"
     within: null
     enabled: true
-  # NOTA: si tu columna de sexo se llama distinto (p. ej. "sexo"), cambia `by`
-  # y `within` a ese nombre. Si la columna no existe, la comparación se omite
-  # con un aviso (no rompe el pipeline).
+  - name: "sexo_por_dieta"     # hembra vs macho, por separado en cada dieta
+    by: "sexo"
+    within: "dieta"
+    enabled: true
+  # NOTA: `by` y `within` son COLUMNAS del manifest.csv (las genera el modo scan
+  # a partir de dataset.scan.factores). Si una columna no existe, ese bloque se
+  # omite con un aviso, sin romper el pipeline.
 
 # -----------------------------------------------------------------------------
 # SALIDAS y verificación.
