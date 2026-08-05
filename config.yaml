@@ -7,11 +7,23 @@
 #   • QUÉ pasa si lo subes / bajas (↑ / ↓),
 #   • un valor TÍPICO para LFP/ERG de ratón.
 #
-# Para usar el pipeline con OTRO set de datos normalmente solo tocas:
-#   - dataset.*  (dónde están los datos y cómo se leen)
-#   - preprocessing.fs  (si tu muestreo es distinto)
-#   - groups.*   (cómo comparar tus condiciones)
-# El resto suele quedar igual.
+# -----------------------------------------------------------------------------
+# ¿ERES NUEVO? Los valores de este archivo YA son una configuración correcta y
+# completa. Para analizar TUS datos normalmente solo necesitas cambiar 3 cosas:
+#     1. dataset.root            → la carpeta donde están tus datos
+#     2. dataset.mat.channel     → el nombre de la variable con la señal (.mat)
+#     3. preprocessing.fs        → tu frecuencia de muestreo
+# Todo lo demás puede quedarse como está y el análisis será válido.
+#
+# ¿ERES USUARIO AVANZADO? Cada bloque tiene un `enabled:` para activar/desactivar
+# ese análisis, y los parámetros del método justo debajo. Los bloques opcionales
+# son: spectral.specparam, pac, bursts, noise, statistics.factorial y cada
+# entrada de `comparisons`. Al correr, el pipeline imprime un PLAN indicando qué
+# se hará y qué se omitió.
+#
+# ORDEN DE LECTURA RECOMENDADO:
+#   analysis_band → dataset → preprocessing → spectral/bands → noise
+#   → pac/bursts → statistics → descriptivo/comparisons → plotting → output
 # =============================================================================
 
 project:
@@ -163,7 +175,7 @@ bands:
   slow:     [0.5,   2.0]
   low_osc:  [2.0,   5.0]
   mid_osc:  [5.0,  12.0]   # ⚠ en ratón in vivo solapa con el latido cardiaco (~5–12 Hz).
-                           #   Interpreta picos aquí con cautela (ver contamination_zones).
+                           #   Interpreta los picos de esta banda con cautela.
   beta:     [12.0,  30.0]
   gamma_lo: [30.0,  60.0]
   gamma_hi: [60.0, 160.0]
@@ -172,11 +184,6 @@ bands:
 relative_power:
   reference_range: [0.5, 160.0]  # denominador de la potencia relativa.
   # ↑ la potencia relativa de cada banda = abs_power / integral(PSD en este rango).
-
-# Zonas de contaminación conocidas: se ANOTAN en el reporte (no se borran).
-contamination_zones:
-  - {name: "cardiaco",   range: [5.0, 12.0], note: "latido (ECG) en ratón in vivo"}
-  - {name: "linea_60Hz", range: [58.0, 62.0], note: "ruido de red eléctrica (50 Hz en EU)"}
 
 # -----------------------------------------------------------------------------
 # PAC — acoplamiento fase-amplitud (Tort MI + Canolty MVL).

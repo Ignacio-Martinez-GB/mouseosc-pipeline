@@ -102,6 +102,17 @@ tests en verde. Prueba la instalación sin tus datos con `python run.py demo`.
 edición: el código no contiene valores fijos y cada parámetro lleva su comentario
 (qué es, qué pasa si lo subes/bajas, valor típico para ratón).
 
+**Si eres nuevo:** los valores que trae el archivo ya son una configuración
+correcta y completa. Para tus datos normalmente solo cambias tres cosas —
+`dataset.root` (dónde están), `dataset.mat.channel` (la variable con la señal) y
+`preprocessing.fs` (tu muestreo). El resto puede quedarse igual.
+
+**Si eres avanzado:** cada bloque opcional tiene su `enabled:` para activarlo o
+desactivarlo (`spectral.specparam`, `pac`, `bursts`, `noise`,
+`statistics.factorial`, y cada entrada de `comparisons`), con los parámetros del
+método justo debajo. Al correr, el pipeline **imprime un PLAN** con lo que hará y
+lo que omitió, y avisa si una sección del config tiene un typo.
+
 | Quiero... | En `config.yaml` |
 |---|---|
 | limitar el rango de frecuencias de TODO el análisis | `analysis_band` |

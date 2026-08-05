@@ -35,8 +35,13 @@ QUÉ COMPARACIONES SE HACEN
 """
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pandas as pd
+
+# pandas avisa al concatenar DataFrames vacíos; no afecta el resultado.
+warnings.filterwarnings('ignore', category=FutureWarning, module='pandas')
 from itertools import combinations
 from scipy import stats as sps
 from statsmodels.stats.multitest import multipletests
@@ -402,7 +407,7 @@ def factorial_posthoc(df, metric, factors, cfg):
 def factorial_all(df, metrics, factors, cfg):
     """Aplica factorial_analysis a varias métricas y concatena."""
     out = [factorial_analysis(df, m, factors, cfg) for m in metrics if m in df.columns]
-    out = [o for o in out if len(o)]
+    out = [o for o in out if len(o) and not o.isna().all().all()]
     return pd.concat(out, ignore_index=True) if out else pd.DataFrame()
 
 
@@ -419,5 +424,5 @@ def factorial_posthoc_all(df, metrics, factors, cfg, solo_si_interaccion=True,
                              & factorial_df["significant"]]
         metrics_use = sorted(inter["metric"].unique())
     out = [factorial_posthoc(df, m, factors, cfg) for m in metrics_use if m in df.columns]
-    out = [o for o in out if len(o)]
+    out = [o for o in out if len(o) and not o.isna().all().all()]
     return pd.concat(out, ignore_index=True) if out else pd.DataFrame()

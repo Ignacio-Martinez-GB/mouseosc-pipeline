@@ -50,9 +50,21 @@ from mouseosc import (io, preprocessing as pp, spectral, bands, pac, bursts,
                       stats, checks, report, viz, export, noise)
 
 
+# Secciones válidas del config (para detectar typos del usuario).
+_SECCIONES = {"project", "analysis_band", "dataset", "preprocessing", "spectral",
+              "bands", "relative_power", "noise", "pac", "bursts", "statistics",
+              "groups", "plotting", "descriptivo", "comparisons", "output", "checks"}
+
+
 def load_config(path):
+    """Carga el config, avisa de secciones desconocidas (typos) y aplica el
+    rango global de análisis."""
     with open(path, "r", encoding="utf-8") as f:
-        cfg = yaml.safe_load(f)
+        cfg = yaml.safe_load(f) or {}
+    desconocidas = set(cfg) - _SECCIONES
+    if desconocidas:
+        print(f"⚠ AVISO: secciones no reconocidas en {path}: {sorted(desconocidas)}")
+        print("  (¿un typo? se ignorarán). Secciones válidas:", ", ".join(sorted(_SECCIONES)))
     # Recorta TODO el análisis al rango global analysis_band (si está definido).
     return bands.apply_analysis_band(cfg)
 
@@ -153,6 +165,51 @@ def _metrics_row(rec, freqs, psd, signal, fs, cfg):
     return row
 
 
+def _print_plan(cfg, n_recs):
+    """
+    Imprime el PLAN de la corrida antes de empezar: qué análisis se harán, cuáles
+    están desactivados y con qué método. Así el usuario ve de un vistazo qué va a
+    obtener (y qué no) sin tener que leer el config.
+    """
+    sp = cfg.get("spectral", {}).get("specparam", {}).get("enabled", False)
+    pc = cfg.get("pac", {}).get("enabled", False)
+    bu = cfg.get("bursts", {}).get("enabled", False)
+    nz = cfg.get("noise", {})
+    st = cfg.get("statistics", {})
+    fa = st.get("factorial", {}) or {}
+    on = lambda b: "SÍ" if b else "no"
+    ab = cfg.get("analysis_band")
+
+    print("\n" + "─" * 66)
+    print(f"PLAN DE LA CORRIDA  ({n_recs} registros)")
+    print("─" * 66)
+    print(f"  Rango de análisis     : {ab[0]}–{ab[1]} Hz" if ab else "  Rango de análisis     : completo")
+    print(f"  Bandas                : {', '.join(cfg.get('bands', {}))}")
+    print(f"  Notch de línea        : {on(cfg['preprocessing'].get('notch_default',{}).get('enabled'))}"
+          f" ({cfg['preprocessing'].get('notch_default',{}).get('hz','-')} Hz)")
+    print(f"  PSD (Welch)           : SÍ (ventana {cfg['spectral'].get('primary_window_s')} s)")
+    print(f"  specparam (1/f)       : {on(sp)}")
+    print(f"  PAC                   : {on(pc)}"
+          f"{'  (' + str(cfg['pac'].get('n_surrogates')) + ' subrogados)' if pc else ''}")
+    print(f"  Bursts                : {on(bu)}")
+    if nz.get("enabled"):
+        print(f"  Esquema de ruido      : SÍ → análisis {nz.get('analyses')}, "
+              f"corrección '{nz.get('metodo_correccion')}' sobre {nz.get('fundamental_hz')} Hz")
+    else:
+        print(f"  Esquema de ruido      : no (un solo análisis)")
+    print(f"  Prueba estadística    : {st.get('metodo','auto')}  |  post-hoc: {st.get('posthoc','auto')}"
+          f"  |  corrección: {st.get('correction','holm')}")
+    print(f"  Factorial             : {on(fa.get('enabled'))}"
+          f"{'  (' + ' × '.join(fa.get('factores', [])) + ')' if fa.get('enabled') else ''}")
+    comps = [c["name"] for c in cfg.get("comparisons", []) if c.get("enabled")]
+    print(f"  Descriptivo           : {on(cfg.get('descriptivo',{}).get('enabled'))}"
+          f"  |  Comparaciones: {', '.join(comps) if comps else 'ninguna'}")
+    if not cfg.get("descriptivo", {}).get("enabled") and not comps:
+        print("  ⚠ AVISO: sin descriptivo ni comparaciones NO se generarán figuras ni")
+        print("           estadística; solo el reporte de salud y metrics_all.csv.")
+    print("─" * 66 + "\n")
+
+
 def emit_analysis(df, psd_store, freqs, out_dir, cfg):
     """Genera el descriptivo + comparaciones por pares + factorial para UN
     conjunto de datos. Devuelve el nº total de comparaciones significativas."""
@@ -229,6 +286,8 @@ def cmd_run(args, validate_only=False):
     expected = set(cfg.get("groups", {}).get("expected", []) or [])
     if expected and set(found) - expected:
         print(f"AVISO: grupos no declarados en groups.expected: {set(found)-expected}")
+
+    _print_plan(cfg, len(recs))
 
     bases, check_records = [], []
 

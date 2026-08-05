@@ -17,7 +17,7 @@ p-valor = fracción de subrogados con MI ≥ al observado. Usa la semilla del co
 
 ⚠ La banda de FASE debe elegirse con cuidado: en ratón in vivo 5–12 Hz solapa
 con el latido cardiaco. Un PAC con fase cardiaca es real matemáticamente pero
-no es acoplamiento neural. Ver contamination_zones en el config.
+no es acoplamiento neural: interpreta ese par con cautela.
 
 Refs: Tort 2010 J Neurophysiol 104:1195; Canolty 2006 Science 313:1626.
 """
