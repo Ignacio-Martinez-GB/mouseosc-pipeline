@@ -187,6 +187,24 @@ def test_posthoc_celdas_factorial():
     assert any("obeso·macho" in s for s in sig), "no detectó la celda distinta"
 
 
+def test_figura_celdas_factoriales(tmp_path):
+    """La figura del cruce (sexo × dieta × condición) se genera con las 8 celdas
+    y una familia de color distinta por sexo."""
+    import pandas as pd
+    from mouseosc import viz, style
+    rng = np.random.default_rng(31)
+    filas = [{"y": v, "sexo": s, "dieta": d, "condicion": c}
+             for s in ("hembra", "macho") for d in ("control", "obeso")
+             for c in ("foto", "meso") for v in rng.normal(10, 1, 6)]
+    df = pd.DataFrame(filas)
+    cfg = {"bands": {}, "output": {"dpi": 60}, "plotting": {}}
+    out = tmp_path / "celdas.png"
+    viz.plot_factorial_cells(df, "y", ["sexo", "dieta", "condicion"], cfg, out)
+    assert out.exists() and out.stat().st_size > 5000, "no se generó la figura"
+    fams = style.family_colors(["hembra", "macho"], 4)
+    assert fams["hembra"][0] != fams["macho"][0], "las familias de color coinciden"
+
+
 def test_analysis_band_recorta_extremos():
     """El rango global recorta solo los extremos: bandas interiores intactas,
     las que cruzan el límite se recortan, las de fuera se eliminan."""

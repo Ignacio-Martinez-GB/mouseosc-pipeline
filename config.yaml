@@ -294,6 +294,16 @@ statistics:
     posthoc_solo_si_interaccion: true   # hacerlo SOLO en las métricas cuya
                               # interacción salió significativa (recomendado: evita
                               # cientos de comparaciones sin sentido). false = todas.
+
+    # FIGURAS DEL CRUCE: un panel por métrica con TODAS las celdas del cruce,
+    # agrupadas jerárquicamente y con una familia de color por el factor externo
+    # (p. ej. hembras en amarillos/rosas, machos en azules/morados).
+    # → factorial/figuras_celdas/celdas_<metrica>.png
+    figuras_celdas: true
+    factores_figura: ["sexo", "dieta", "condicion"]   # de EXTERNO a INTERNO.
+                              # El 1º define las familias de color y los bloques;
+                              # el último son las cajas contiguas. Si lo dejas en
+                              # null se usan los mismos `factores` del factorial.
     # Prueba: si `metodo` es paramétrico (o auto con residuos normales) → ANOVA de
     # N vías (statsmodels, typ=2). Si no → ART (Aligned Rank Transform), la versión
     # no paramétrica que SÍ permite probar interacciones (Wobbrock et al. 2011).

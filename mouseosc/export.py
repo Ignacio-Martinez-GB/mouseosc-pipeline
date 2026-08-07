@@ -182,6 +182,41 @@ def export_analyses(df, psd_store, freqs, gcol, out_dir, cfg, label="", bandpowe
     return 0
 
 
+def export_factorial_figures(df, factors, out_dir, cfg, metrics=None, posthoc_df=None):
+    """
+    Figuras del CRUCE de factores (p. ej. sexo × dieta × condición): una por
+    métrica, con todas las celdas en un panel, colores por familia del factor
+    externo y corchetes de significancia del post-hoc de celdas.
+    """
+    out_dir = Path(out_dir) / "figuras_celdas"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    bands_cfg = cfg.get("bands", {})
+    if metrics is None:
+        metrics = ([f"{b}_{s}" for b in bands_cfg for s in ("abs", "rel")] +
+                   [c for c in ("aperiodic_exponent", "median_freq", "spectral_entropy")
+                    if c in df.columns] +
+                   [c for c in df.columns if c.startswith("pac_") and c.endswith("_mi")])
+    hechas = 0
+    for m in metrics:
+        if m not in df.columns or not df[m].notna().any():
+            continue
+        sig = []
+        if posthoc_df is not None and len(posthoc_df):
+            sub = posthoc_df[(posthoc_df["metric"] == m) & posthoc_df["significant"]]
+            for _, r in sub.iterrows():
+                a, b = str(r["comparison"]).split(" vs ")
+                sig.append((a, b, float(r["p_corrected"])))
+        titulo = m
+        base = m.rsplit("_", 1)[0]
+        if base in bands_cfg:
+            titulo = style.band_label(base, bands_cfg[base]).replace("\n", " ") + \
+                     f" — {m.rsplit('_', 1)[1]}"
+        viz.plot_factorial_cells(df, m, factors, cfg, out_dir / f"celdas_{m}.png",
+                                 title=titulo, sig_pairs=sig)
+        hechas += 1
+    return hechas
+
+
 def _export_metric_group(df, gcol, cfg, out_dir, cols, save_fig, box_only_suffixes=None):
     """Exporta un grupo de métricas (specparam/pac/bursts): boxplots + prism."""
     if not cols:

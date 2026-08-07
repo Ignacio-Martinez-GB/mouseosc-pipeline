@@ -233,6 +233,7 @@ def emit_analysis(df, psd_store, freqs, out_dir, cfg):
                 export._save_csv(fdf, out_dir / "factorial" / "efectos_e_interacciones.csv", cfg)
                 total_sig += int(fdf["significant"].sum())
                 # POST-HOC de celdas (por defecto solo donde la interacción es signif.)
+                ph = None
                 if fcfg.get("posthoc_celdas", True):
                     ph = stats.factorial_posthoc_all(
                         df, mcols, factores, cfg,
@@ -240,6 +241,13 @@ def emit_analysis(df, psd_store, freqs, out_dir, cfg):
                         factorial_df=fdf)
                     if len(ph):
                         export._save_csv(ph, out_dir / "factorial" / "posthoc_celdas.csv", cfg)
+                # FIGURAS del cruce de celdas (sexo × dieta × condición en un panel)
+                if fcfg.get("figuras_celdas", True) and cfg.get("output", {}).get("save_figures", True):
+                    n_fig = export.export_factorial_figures(
+                        df, fcfg.get("factores_figura") or factores,
+                        out_dir / "factorial", cfg, posthoc_df=ph)
+                    if n_fig:
+                        print(f"    figuras de celdas: {n_fig} → {out_dir/'factorial'/'figuras_celdas'}")
         elif fcfg.get("factores"):
             print(f"  AVISO: factorial omitido (faltan columnas: {fcfg.get('factores')}).")
     desc = cfg.get("descriptivo", {})

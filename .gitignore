@@ -30,5 +30,3 @@ manifest_*.csv
 
 # guía local de git (no forma parte del paquete)
 GIT_Y_GITHUB.md
-
-.gitprobe

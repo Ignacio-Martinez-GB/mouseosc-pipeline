@@ -63,6 +63,38 @@ def color_map(levels, cfg):
     return out
 
 
+# Familias de color: un TONO por cada nivel del factor externo (p. ej. sexo).
+# Dentro de cada familia, variantes claras/oscuras para las subcondiciones, de
+# modo que "hembras" y "machos" se distingan de un vistazo pero cada subgrupo
+# tenga su matiz propio (como en las figuras de publicación).
+_FAMILIES = {
+    "hembra": ["#E8C547", "#F0DC82", "#C1467F", "#E58BB4"],   # amarillos → rosas
+    "macho":  ["#6BAED6", "#A6CEE3", "#6A3D9A", "#B49BD8"],   # azules → morados
+    "_alt1":  ["#0072B2", "#7FC4E8", "#00695C", "#66B2A8"],
+    "_alt2":  ["#D55E00", "#F0A16A", "#8C3B00", "#C98A5E"],
+}
+
+
+def family_colors(outer_levels, n_inner, cfg=None):
+    """
+    Devuelve {nivel_externo: [colores...]} — una FAMILIA de color por cada nivel
+    del factor externo (p. ej. hembra/macho), con `n_inner` variantes dentro para
+    las subcondiciones (dieta × condición). Permite ver el sexo por el color
+    general y la subcondición por el matiz.
+    Se puede sobrescribir en config -> plotting.familias.
+    """
+    custom = ((cfg or {}).get("plotting", {}) or {}).get("familias", {}) or {}
+    alt = ["_alt1", "_alt2"]
+    out = {}
+    for i, lv in enumerate(outer_levels):
+        key = str(lv).lower()
+        base = custom.get(lv) or custom.get(key) or _FAMILIES.get(key) \
+            or _FAMILIES[alt[i % len(alt)]]
+        # repetir/recortar la familia hasta cubrir n_inner subcondiciones
+        out[lv] = [base[j % len(base)] for j in range(max(n_inner, 1))]
+    return out
+
+
 def band_label(name, rng=None):
     """Etiqueta de banda con su rango en Hz en una segunda línea."""
     if rng is None:

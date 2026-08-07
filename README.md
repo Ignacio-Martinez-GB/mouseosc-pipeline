@@ -284,6 +284,21 @@ Levene**, así que la decisión queda auditable.
 (t o Mann-Whitney según supuestos) con corrección `holm`; `tukey` = **Tukey HSD**,
 el post-hoc clásico de ANOVA (controla el error familiar por sí mismo).
 
+**Figura del cruce de factores** (`statistics.factorial.figuras_celdas`): un panel
+por métrica con **todas las celdas** del cruce, agrupadas jerárquicamente y con una
+**familia de color por el factor externo** (hembras en amarillos/rosas, machos en
+azules/morados), más los corchetes de significancia del post-hoc:
+
+```
+  foto meso foto meso  │  foto meso foto meso     ← factor interno
+    control    obeso   │    control    obeso      ← factor intermedio
+        hembra         │        macho             ← factor externo (familias de color)
+```
+
+El orden se define en `factores_figura: ["sexo","dieta","condicion"]` (de externo
+a interno) y las paletas se pueden sobrescribir en `plotting.familias`.
+Salida: `factorial/figuras_celdas/celdas_<metrica>.png`.
+
 > Nota: la estratificación (`within:` en `comparisons`) repite una comparación
 > *dentro* de cada nivel — es complementaria al factorial, no equivalente: el
 > factorial es el que estima efectos principales e interacción en un solo modelo.

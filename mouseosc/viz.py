@@ -264,6 +264,108 @@ def plot_bandpower(df, gcol, cfg, out_path, suffix="abs", kind="box",
 
 
 # ---------------------------------------------------------------------------
+# PANEL DE CELDAS FACTORIALES (sexo × dieta × condición en una sola figura)
+# ---------------------------------------------------------------------------
+def plot_factorial_cells(df, metric, factors, cfg, out_path, title=None,
+                         sig_pairs=None, stat_text=None, ylog=False):
+    """
+    Caja y bigotes de TODAS las celdas del cruce de factores, agrupadas
+    jerárquicamente en el eje X y con una FAMILIA de color por cada nivel del
+    factor externo.
+
+    `factors` va de EXTERNO a INTERNO. Ejemplo con ["sexo","dieta","condicion"]:
+
+        Foto Meso Foto Meso  |  Foto Meso Foto Meso     ← factor interno
+           Ctrl     PUP      |     Ctrl      PUP        ← factor intermedio
+              Hembras        |       Machos             ← factor externo
+
+    Las hembras comparten una gama (amarillos/rosas) y los machos otra
+    (azules/morados), con un matiz distinto por subcondición.
+
+    sig_pairs: [(celda_a, celda_b, p)] para dibujar corchetes de significancia,
+    donde cada celda es la tupla de niveles unida por "·".
+    """
+    if len(factors) < 2:
+        return
+    outer, inners = factors[0], factors[1:]
+    d = df[[metric] + factors].dropna().copy()
+    if d.empty:
+        return
+    for f in factors:
+        d[f] = d[f].astype(str)
+
+    outer_lv = sorted(d[outer].unique())
+    # combinaciones internas, en orden jerárquico (intermedio → interno)
+    from itertools import product
+    inner_lv = [sorted(d[f].unique()) for f in inners]
+    inner_combos = list(product(*inner_lv))
+    fams = style.family_colors(outer_lv, len(inner_combos), cfg)
+
+    # posiciones: bloques por nivel externo, separados por un hueco
+    pos, labels, colors, data, cells = [], [], [], [], []
+    x = 0.0
+    bloque_centro, bloque_lims = [], []
+    for o in outer_lv:
+        ini = x
+        for j, combo in enumerate(inner_combos):
+            sel = d[d[outer] == o]
+            for f, v in zip(inners, combo):
+                sel = sel[sel[f] == v]
+            vals = sel[metric].values
+            pos.append(x); labels.append(combo[-1]); colors.append(fams[o][j])
+            data.append(vals); cells.append("·".join((o,) + combo))
+            x += 1.0
+        bloque_centro.append((ini + x - 1) / 2); bloque_lims.append((ini, x - 1))
+        x += 1.0        # hueco entre bloques externos
+
+    fig, ax = plt.subplots(figsize=(max(7, 0.95 * len(pos) + 2), 5.2))
+    bp = ax.boxplot(data, positions=pos, widths=0.7, patch_artist=True,
+                    showmeans=True, medianprops=dict(color="#222"),
+                    meanprops=dict(marker="^", markerfacecolor="white",
+                                   markeredgecolor="#222", markersize=6))
+    for patch, c in zip(bp["boxes"], colors):
+        patch.set_facecolor(c); patch.set_alpha(0.75)
+    rng = np.random.default_rng(0)
+    for xi, vals, c in zip(pos, data, colors):
+        if len(vals):
+            ax.plot(rng.normal(xi, 0.07, len(vals)), vals, "o", ms=3.2,
+                    color=c, alpha=0.9, markeredgecolor="#333", markeredgewidth=0.3)
+
+    # separadores verticales entre bloques del factor externo
+    for (a, b), (a2, _) in zip(bloque_lims[:-1], bloque_lims[1:]):
+        ax.axvline((b + a2) / 2, color="#bbb", lw=0.8)
+
+    if ylog:
+        ax.set_yscale("log")
+    ax.set_xticks(pos); ax.set_xticklabels(labels, fontsize=8)
+
+    # etiquetas jerárquicas debajo del eje (intermedio y externo)
+    if len(inners) >= 2:
+        n_last = len(inner_lv[-1])
+        for bi, o in enumerate(outer_lv):
+            ini = bloque_lims[bi][0]
+            for k, mid in enumerate(inner_lv[0]):
+                c0 = ini + k * n_last + (n_last - 1) / 2
+                ax.text(c0, -0.075, str(mid), transform=ax.get_xaxis_transform(),
+                        ha="center", va="top", fontsize=9)
+    for bi, o in enumerate(outer_lv):
+        ax.text(bloque_centro[bi], -0.145 if len(inners) >= 2 else -0.085,
+                str(o), transform=ax.get_xaxis_transform(),
+                ha="center", va="top", fontsize=10, fontweight="bold")
+
+    # corchetes de significancia entre celdas
+    if sig_pairs:
+        idx = {c: p for c, p in zip(cells, pos)}
+        _sig_brackets(ax, idx, [(a, b, p) for a, b, p in sig_pairs
+                                if a in idx and b in idx],
+                      {c: v for c, v in zip(cells, data)}, ylog=ylog)
+
+    ax.set(ylabel=metric, title=title or metric)
+    fig.subplots_adjust(bottom=0.22)
+    _save(fig, out_path, cfg, (BOX_FOOTER + (f"\n{stat_text}" if stat_text else "")))
+
+
+# ---------------------------------------------------------------------------
 # Comodulograma
 # ---------------------------------------------------------------------------
 def plot_comodulogram(phases, amps, mi_grid, out_path, cfg, title="Comodulograma (MI)"):
