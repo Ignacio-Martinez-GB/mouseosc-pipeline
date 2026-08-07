@@ -67,7 +67,19 @@ dataset:
   # Edita este diccionario según cómo nombres TUS carpetas.
   scan:
     group_from: dieta           # qué factor alimenta la columna 'group' (comparación por defecto)
-    # animal_id_regex: "([A-Z]+\\d+[A-Z]\\d+O[DI])"   # opcional: extraer sujeto+ojo del nombre
+
+    # animal_id: por defecto es el NOMBRE DEL ARCHIVO, así que cada registro
+    # cuenta como una observación independiente.
+    # ⚠ PSEUDORREPLICACIÓN: si un mismo animal aporta varios registros (ojo
+    #   izquierdo/derecho, o las condiciones foto y meso), esas medidas NO son
+    #   independientes. Tratarlas como si lo fueran infla la significancia
+    #   (aunque es una práctica común en la literatura).
+    #   Para agrupar por animal real, activa un regex que extraiga el sujeto del
+    #   nombre del archivo. Ejemplo para nombres tipo IC57S0C1H1ODEspontaneo...:
+    # animal_id_regex: "(S\\d+C\\d+[HM]\\d+)"     # → S0C1H1 (mismo animal, ambos ojos)
+    #   Con animal_id real puedes además promediar por animal antes de la
+    #   estadística, o usar comparaciones pareadas (statistics.paired: true)
+    #   cuando compares condiciones medidas en el MISMO animal (foto vs meso).
     factores:
       dieta:
         control: [CONTROL, Control, "DIETA CONTROL"]
@@ -287,8 +299,11 @@ statistics:
 
   factorial:
     enabled: true             # análisis de N vías (p. ej. dieta × sexo).
-    factores: ["dieta", "sexo"]   # columnas del manifiesto a cruzar (mínimo 2).
-                              # Añade "condicion" para un factorial de 3 vías.
+    factores: ["dieta", "sexo", "condicion"]   # columnas a cruzar (mínimo 2).
+                              # Con 3 factores obtienes los 3 efectos principales,
+                              # las 3 interacciones dobles y la triple. Ojo: la
+                              # interacción triple es la que menos potencia tiene;
+                              # si el n por celda es bajo, considera dejar 2 factores.
     posthoc_celdas: true      # tras el factorial, comparar las CELDAS del cruce
                               # (control·hembra vs obeso·macho, …) → factorial/posthoc_celdas.csv
     posthoc_solo_si_interaccion: true   # hacerlo SOLO en las métricas cuya
@@ -366,6 +381,22 @@ comparisons:
   - name: "sexo_por_dieta"     # hembra vs macho, por separado en cada dieta
     by: "sexo"
     within: "dieta"
+    enabled: true
+  - name: "condicion"          # foto vs meso (efecto de la condición lumínica)
+    by: "condicion"
+    within: null
+    enabled: true
+  - name: "condicion_por_dieta"   # foto vs meso, por separado en cada dieta
+    by: "condicion"
+    within: "dieta"
+    enabled: true
+  - name: "condicion_por_sexo"    # foto vs meso, por separado en cada sexo
+    by: "condicion"
+    within: "sexo"
+    enabled: true
+  - name: "dieta_por_condicion"   # control vs obeso, por separado en foto y en meso
+    by: "dieta"
+    within: "condicion"
     enabled: true
   # NOTA: `by` y `within` son COLUMNAS del manifest.csv (las genera el modo scan
   # a partir de dataset.scan.factores). Si una columna no existe, ese bloque se
